@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-/* Harbour chart palette: paper, ink, beacon (reports), tide (approved webcams), buoy (public CCTV). */
+/* Harbour chart palette: paper, ink, beacon (reports), tide (approved webcams), buoy (unapproved webcams), signal (public CCTV). */
 :root {
   --chart: #eef3f1;
   --chart-deep: #dde7e3;
@@ -13,6 +13,7 @@
   --tide: #0d7f81;
   --tide-wash: #dbefee;
   --buoy: #8a9ba8;
+  --signal: #dc2626;
   --amber: #a86a12;
   --amber-wash: #f8ecd6;
   /* Chart series, validated with the dataviz palette checker (light surface). */
@@ -32,6 +33,7 @@
   --color-tide: var(--tide);
   --color-tide-wash: var(--tide-wash);
   --color-buoy: var(--buoy);
+  --color-signal: var(--signal);
   --color-amber: var(--amber);
   --color-amber-wash: var(--amber-wash);
   --color-series-selective: var(--series-selective);

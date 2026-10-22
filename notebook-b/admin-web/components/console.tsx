@@ -86,7 +86,7 @@ export function Console() {
               <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-beacon" />신고 지점과 검색 반경</li>
               <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
               <li className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-buoy" />
+                <span className="h-2.5 w-2.5 rounded-full bg-signal ring-1 ring-white" />
                 <label className="flex items-center gap-1.5">
                   <input type="checkbox" checked={showPublic} onChange={(event) => setShowPublic(event.target.checked)} />
                   부산 공개 CCTV 위치 (지도 표시 전용)

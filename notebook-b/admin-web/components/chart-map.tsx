@@ -9,7 +9,7 @@ import { api, type AnalysisCamera, type Camera, type ReportSummary } from "@/lib
 const BUSAN: LatLngExpression = [35.1336, 129.103]; // PKNU Daeyeon campus, exhibition venue
 const PUBLIC_MIN_ZOOM = 14;
 // Canvas rendering cannot resolve CSS variables, so mirror the globals.css tokens here.
-const COLORS = { beacon: "#e2580b", tide: "#0d7f81", buoy: "#8a9ba8", ink: "#0f2a3d", "ink-soft": "#4b6271" } as const;
+const COLORS = { beacon: "#e2580b", tide: "#0d7f81", buoy: "#8a9ba8", signal: "#dc2626", ink: "#0f2a3d", "ink-soft": "#4b6271" } as const;
 const css = (name: keyof typeof COLORS) => COLORS[name];
 
 type PublicCamera = { id: string; name: string; district: string; purpose: string; latitude: number; longitude: number };
@@ -83,8 +83,8 @@ function PublicLayer({ enabled, onCount }: { enabled: boolean; onCount?: MapProp
         <CircleMarker
           key={point.id}
           center={[point.latitude, point.longitude]}
-          radius={3}
-          pathOptions={{ color: css("buoy"), weight: 1, fillColor: css("buoy"), fillOpacity: 0.55 }}
+          radius={5}
+          pathOptions={{ color: "#fff", weight: 1.5, fillColor: css("signal"), fillOpacity: 0.9 }}
         >
           <Tooltip>{`${point.name} · ${point.purpose} (공개 위치 · 영상 분석 대상 아님)`}</Tooltip>
         </CircleMarker>
