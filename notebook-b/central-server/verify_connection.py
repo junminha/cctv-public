@@ -16,7 +16,7 @@ def main():
         raise SystemExit('A connection is not configured; provide runtime/a-secrets.json')
     parsed = urlsplit(settings.adapter_url)
     result = {'checked_at': utc(), 'checks': {}, 'video_decode': 'NOT_TESTED',
-              'analysis_approval': 'UNREGISTERED', 'footage_saved': False}
+              'analysis_approval': 'NOT_CHECKED_BY_THIS_TOOL', 'footage_saved': False}
     for port in (parsed.port or 443, 8555):
         try:
             with socket.create_connection((parsed.hostname, port), timeout=8):

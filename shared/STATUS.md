@@ -10,24 +10,25 @@
 - 별도 Adapter: Bearer 인증, 상태/카메라/녹화구간/추출·SHA256/감사 로그 구현. 별도 Tailscale 전용 RTSP relay 설정 코드 제공.
 - 실제 수행한 검증 결과는 `A-검증.json`과 `A-검증기록.md`를 참고한다. 결과 파일이 없거나 항목이 NOT_TESTED라면 완료된 것으로 해석하지 않는다.
 - Tailscale 1.104.2 설치 및 A 로그인 확인. A 주소 `192.0.2.10`, 이름 `notebook-a.example.invalid`.
-- 인증 RTSP relay가 A Tailscale 주소의 8555 포트에서 실행 중. A 자신이 Tailscale 주소로 3채널 디코딩 성공, 인증 없는 요청 401 차단 확인. 실제 B/다른 인터넷 수신은 아직 미검증이며 현재 연결된 peer가 없다.
+- 인증 RTSP relay가 A Tailscale 주소의 8555 포트에서 실행 중. A 자체 3채널 디코딩·무인증 차단 시험 완료. B `notebook-b-example`이 같은 tailnet에서 연결됐고 B→A TCP443/8555 및 direct ping 성공. B 실제 영상 디코딩/다른 인터넷 수신은 아직 미검증이다.
 - HTTPS API 활성화 완료: `https://notebook-a.example.invalid`. A 자체 HTTPS 시험에서 인증서 검증·무인증 401·인증된 health/cameras/capabilities/stream/recordings 200 확인. Serve는 tailnet 내부 전용이다.
-- B: FastAPI·SQLite·역할별 인증·신고와 대기 작업 저장·A 메타데이터 연동·승인된 위치 반경 후보 조회를 구현했다. [B 검증 기록](B-검증기록.md) 참고.
-- B의 AI worker, 영상 수신/추출·보존, WebSocket, Next.js 관리자와 신고 앱은 아직 구현하지 않았다. 대기 작업을 분석 성공으로 해석하지 않는다.
+- B: FastAPI·SQLite·역할별 인증·신고/대기 작업 저장·A 상태 동기화·승인된 위치 반경 후보·녹화 추출본 검증/보존/다운로드·감사 기록을 구현했다. 실제 HTTPS 인증/상태 조회와 72개 소프트웨어 테스트 완료. [B 검증 기록](B-검증기록.md) 참고.
+- B 공개 위치 API: 부산 공식 자료의 21,009개 장비 기록(16구군)을 정제해 별도 위치 카탈로그로 제공한다. 공개 위치는 영상 분석권한이 아니며 A 카메라에 복사하지 않는다.
+- B의 AI worker, 실시간 영상 디코딩, 첨부파일, WebSocket, Next.js 관리자와 신고 앱은 아직 구현하지 않았다. 대기 작업을 분석 성공으로 해석하지 않는다. 실제 A 영상 보존은 승인 미등록으로 수행하지 않았다.
 
 ## 다음 B Codex가 할 일
 
 1. B GPU는 RTX 3060 Laptop / 6144MiB / 드라이버 610.62 확인. Python 3.11.9 사용. PyTorch CUDA 추론은 아직 미검증이다.
 2. B의 `notebook-b/central-server/start.ps1`로 로컬 서버를 실행할 수 있다. 기본 포트 8000, 실제 비밀 설정과 DB는 Git 제외.
-3. B에 Tailscale을 설치·로그인하고 활성화된 A의 URL·A 토큰을 B 로컬 비밀 설정에 전달한다. 토큰은 별도 비공개 전달한다. 실제 HTTPS/RTSP 수신은 후속 검증한다.
-4. B의 FFmpeg·PyTorch CUDA·YOLO/MediaPipe와 신고 반경→후보 저FPS 탐색→집중 분석 worker를 구현·검증한다. 반경 후보 생성만 현재 구현되어 있다.
+3. B Tailscale 설치·로그인, A 비밀 파일 수신, HTTPS 인증/상태 조회는 완료했다. A cam-01~03의 실제 위치·시연 구역·촬영 대상 분석 승인을 사용자에게 확인받아 등록한 뒤 실제 영상 수신/보존을 검증한다. 현재 세 채널은 위치 null·승인 false다.
+4. B FFmpeg/ffprobe 설치와 합성 MP4 검증은 완료했다. PyTorch CUDA·YOLO/MediaPipe와 신고 반경→후보 저FPS 탐색→집중 분석 worker를 구현·검증한다. 반경 후보 생성만 현재 구현되어 있다.
 5. 첨부 업로드·증거 보존·WebSocket과 Next.js 관리자의 모의 신고를 통합한다. Expo 앱은 마지막이다.
 
 ## 미검증/운영 제한
 
 USB 실제 탈착·포트 이동·컴퓨터 실제 재부팅·장시간 부하·실제 디스크 장애·외부망 지연·B AI 성능은 후속 실측 대상이다. 소프트웨어 프로세스 장애 복구와 실제 하드웨어 탈착 시험은 다르다.
 저장 기간은 기본 7일, 공간 하한 10GiB이다. 장시간 운영 시 로그와 추출 보존본은 운영자가 관리한다. 보존 기간 만료 원본은 MediaMTX가 정리한다.
-현재 카메라 좌표는 미등록이다. 실제 위치를 임의로 만들어 넣지 않는다.
+A 웹캠 카메라 좌표·분석 승인은 미등록이다. 실제 위치를 임의로 만들어 넣지 않는다. 공개 카탈로그의 2025-12-29 자료명 기준일과 2026-10-22 다운로드일은 구분한다.
 
 ## Git 협업
 
