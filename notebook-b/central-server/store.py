@@ -6,7 +6,7 @@ from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
-from models import utc
+from models import DEMO_CAMERA_IDS, utc
 
 
 class Store:
@@ -109,6 +109,7 @@ class Store:
                 camera[field] = bool(camera[field])
             age = (datetime.now(timezone.utc) - datetime.fromisoformat(camera['synced_at'])).total_seconds()
             camera['fresh'] = 0 <= age <= 60
+            camera['demo_source'] = camera['id'] in DEMO_CAMERA_IDS
             result.append(camera)
         return result
 
@@ -122,7 +123,7 @@ class Store:
     def candidates(self, report):
         candidates = []
         for camera in self.cameras():
-            if not (camera['online'] and camera['fresh'] and camera['approved']
+            if not (camera['demo_source'] and camera['online'] and camera['fresh'] and camera['approved']
                     and camera['latitude'] is not None and camera['kind'] == report['location_kind']):
                 continue
             lat1, lat2 = math.radians(report['latitude']), math.radians(camera['latitude'])

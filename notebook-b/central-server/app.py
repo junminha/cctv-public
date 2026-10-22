@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from adapter import Adapter, AdapterError
 from clips import Clips
-from models import CameraId, LocationInput, PreserveInput, ReportInput, UtcDatetime, utc
+from models import CameraId, DEMO_CAMERA_IDS, LocationInput, PreserveInput, ReportInput, UtcDatetime, utc
 from public_catalog import list_cameras as public_cameras
 from store import Store
 
@@ -127,6 +127,10 @@ def create_app(settings, adapter_http=None):
 
     @app.put('/api/v1/admin/cameras/{camera_id}/location', dependencies=[Depends(admin)])
     def locate(camera_id: CameraId, location: LocationInput):
+        if location.approved and camera_id not in DEMO_CAMERA_IDS:
+            if camera_id not in {row['id'] for row in app.state.store.cameras()}:
+                raise HTTPException(404, 'Camera not found')
+            raise HTTPException(403, 'Only the three demo webcam channels may be approved')
         if not app.state.store.locate(camera_id, location):
             raise HTTPException(404, 'Camera not found')
         return {'camera_id': camera_id, **location.model_dump()}

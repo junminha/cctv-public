@@ -138,6 +138,14 @@ def test_preservation_requires_registered_approved_matching_camera(preservation)
                        headers=auth(REPORTER), json={}).status_code == 403
 
 
+def test_other_cctv_cannot_be_preserved_even_with_legacy_approval(preservation):
+    client, report_id, _, settings = preservation
+    with sqlite3.connect(settings.database_path) as database:
+        database.execute('''INSERT INTO cameras VALUES
+            ('cam-04','Other CCTV',1,1,'2026-10-22T00:00:00Z',37.5,127,'demo',1)''')
+    assert preserve(client, report_id, camera_id='cam-04').status_code == 403
+
+
 @pytest.mark.parametrize('failure', ['hash', 'size', 'path', 'identity', 'oversize', 'invalid_video'])
 def test_failed_clip_is_not_committed_or_left_on_disk(preservation, failure):
     client, report_id, state, settings = preservation

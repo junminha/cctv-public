@@ -10,7 +10,7 @@ import httpx
 
 from adapter import AdapterError
 from media import inspect_clip, tool
-from models import utc
+from models import DEMO_CAMERA_IDS, utc
 
 
 def ranges_cover(ranges, start, end):
@@ -47,6 +47,8 @@ class Clips:
         camera = next((row for row in self.store.cameras() if row['id'] == request.camera_id), None)
         if camera is None:
             raise AdapterError(404, 'Camera not found')
+        if request.camera_id not in DEMO_CAMERA_IDS:
+            raise AdapterError(403, 'Only the three demo webcam channels may provide video')
         if not camera['approved'] or camera['kind'] != report['location_kind']:
             raise AdapterError(403, 'Camera analysis approval and matching location kind are required')
         tool('ffprobe')

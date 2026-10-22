@@ -12,8 +12,9 @@
 - Tailscale 1.104.2 설치 및 A 로그인 확인. A 주소 `192.0.2.10`, 이름 `notebook-a.example.invalid`.
 - 인증 RTSP relay가 A Tailscale 주소의 8555 포트에서 실행 중. A 자체 3채널 디코딩·무인증 차단 시험 완료. B `notebook-b-example`이 같은 tailnet에서 연결됐고 B→A TCP443/8555 및 direct ping 성공. B 실제 영상 디코딩/다른 인터넷 수신은 아직 미검증이다.
 - HTTPS API 활성화 완료: `https://notebook-a.example.invalid`. A 자체 HTTPS 시험에서 인증서 검증·무인증 401·인증된 health/cameras/capabilities/stream/recordings 200 확인. Serve는 tailnet 내부 전용이다.
-- B: FastAPI·SQLite·역할별 인증·신고/대기 작업 저장·A 상태 동기화·승인된 위치 반경 후보·녹화 추출본 검증/보존/다운로드·감사 기록을 구현했다. 실제 HTTPS 인증/상태 조회와 72개 소프트웨어 테스트 완료. [B 검증 기록](B-검증기록.md) 참고.
+- B: FastAPI·SQLite·역할별 인증·신고/대기 작업 저장·A 상태 동기화·승인된 위치 반경 후보·녹화 추출본 검증/보존/다운로드·감사 기록을 구현했다. 실제 HTTPS 인증/상태 조회와 74개 소프트웨어 테스트 완료. [B 검증 기록](B-검증기록.md) 참고.
 - B 공개 위치 API: 부산 공식 자료의 21,009개 장비 기록(16구군)을 정제해 별도 위치 카탈로그로 제공한다. 공개 위치는 영상 분석권한이 아니며 A 카메라에 복사하지 않는다.
+- 사용자 확정 범위: 실제 공공 CCTV는 지도·목록 표시만 하고 AI 학습·분석에서 제외한다. 영상 시연·후보 선정·보존은 A 웹캠 cam-01/02/03만 허용하며 코드에서도 다른 입력을 차단한다.
 - B의 AI worker, 실시간 영상 디코딩, 첨부파일, WebSocket, Next.js 관리자와 신고 앱은 아직 구현하지 않았다. 대기 작업을 분석 성공으로 해석하지 않는다. 실제 A 영상 보존은 승인 미등록으로 수행하지 않았다.
 
 ## 다음 B Codex가 할 일

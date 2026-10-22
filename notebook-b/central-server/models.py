@@ -7,6 +7,8 @@ from pydantic import (AfterValidator, AwareDatetime, BaseModel, ConfigDict, Fiel
 Latitude = Annotated[float, Field(ge=-90, le=90, allow_inf_nan=False)]
 Longitude = Annotated[float, Field(ge=-180, le=180, allow_inf_nan=False)]
 CameraId = Annotated[str, StringConstraints(pattern=r'^[a-z0-9][a-z0-9-]{0,63}$')]
+# Current demonstration uses only these A webcam channels, never public CCTV.
+DEMO_CAMERA_IDS = ('cam-01', 'cam-02', 'cam-03')
 
 
 def utc(value: datetime | None = None) -> str:
