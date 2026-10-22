@@ -10,7 +10,7 @@
 - 실제 수행한 검증 결과는 `A-검증.json`과 `A-검증기록.md`를 참고한다. 결과 파일이 없거나 항목이 NOT_TESTED라면 완료된 것으로 해석하지 않는다.
 - Tailscale 1.104.2 설치 및 A 로그인 확인. A 주소 `192.0.2.10`, 이름 `notebook-a.example.invalid`.
 - 인증 RTSP relay가 A Tailscale 주소의 8555 포트에서 실행 중. A 자신이 Tailscale 주소로 3채널 디코딩 성공, 인증 없는 요청 401 차단 확인. 실제 B/다른 인터넷 수신은 아직 미검증이며 현재 연결된 peer가 없다.
-- HTTPS API는 Tailscale Serve 기능 활성화를 기다리는 중. 예정 주소 `https://notebook-a.example.invalid`. Serve 설정이 완료되기 전에는 이 주소를 동작하는 API로 간주하지 않는다.
+- HTTPS API 활성화 완료: `https://notebook-a.example.invalid`. A 자체 HTTPS 시험에서 인증서 검증·무인증 401·인증된 health/cameras/capabilities/stream/recordings 200 확인. Serve는 tailnet 내부 전용이다.
 - B/관리자/신고 앱은 아직 구현하지 않았다. README만 있으며 생성된 서버나 앱으로 오해하지 않는다.
 
 ## 다음 B Codex가 할 일
