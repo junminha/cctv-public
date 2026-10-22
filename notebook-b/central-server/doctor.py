@@ -4,13 +4,32 @@ import json
 import platform
 import shutil
 import subprocess
+from pathlib import Path
+
+from media import tool
+from adapter import AdapterError
 
 
 def diagnose():
     result = {'python': platform.python_version(), 'platform': platform.system(),
               'nvidia_driver': 'NOT_TESTED', 'pytorch_cuda': 'NOT_INSTALLED',
-              'ffmpeg': bool(shutil.which('ffmpeg')), 'tailscale': bool(shutil.which('tailscale')),
-              'a_external_connection': 'NOT_TESTED'}
+              'ffmpeg': False, 'tailscale': False,
+              'a_connection_check': 'Run verify_connection.py for current network/auth checks'}
+    try:
+        tool('ffmpeg')
+        tool('ffprobe')
+        result['ffmpeg'] = True
+    except AdapterError:
+        pass
+    tail_path = shutil.which('tailscale') or 'C:/Program Files/Tailscale/tailscale.exe'
+    result['tailscale'] = Path(tail_path).is_file()
+    if result['tailscale']:
+        try:
+            status = subprocess.run([tail_path, 'status', '--json'], capture_output=True, timeout=10,
+                                    creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            result['tailscale_state'] = json.loads(status.stdout).get('BackendState', 'UNKNOWN')
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            result['tailscale_state'] = 'UNAVAILABLE'
     command = shutil.which('nvidia-smi')
     if command:
         try:

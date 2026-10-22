@@ -29,6 +29,14 @@ class Store:
                     latitude REAL, longitude REAL, kind TEXT,
                     approved INTEGER NOT NULL DEFAULT 0
                 );
+                CREATE TABLE IF NOT EXISTS clips (
+                    id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id),
+                    metadata TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS audit_events (
+                    created_at TEXT NOT NULL, event TEXT NOT NULL, actor TEXT NOT NULL,
+                    report_id TEXT NOT NULL, clip_id TEXT NOT NULL
+                );
             ''')
 
     @contextmanager
@@ -125,3 +133,26 @@ class Store:
             if distance <= report['radius_m']:
                 candidates.append({**camera, 'distance_m': round(distance, 2)})
         return sorted(candidates, key=lambda row: (row['distance_m'], row['id']))
+
+    def save_clip(self, metadata, actor):
+        with self.connect() as database:
+            database.execute('INSERT INTO clips VALUES (?,?,?)',
+                             (metadata['clip_id'], metadata['report_id'], json.dumps(metadata)))
+            database.execute('INSERT INTO audit_events VALUES (?,?,?,?,?)',
+                             (utc(), 'clip_preserved', actor, metadata['report_id'], metadata['clip_id']))
+
+    def clips(self, report_id):
+        with self.connect() as database:
+            rows = database.execute('SELECT metadata FROM clips WHERE report_id=? ORDER BY rowid DESC',
+                                    (report_id,)).fetchall()
+        return [json.loads(row['metadata']) for row in rows]
+
+    def clip(self, clip_id):
+        with self.connect() as database:
+            row = database.execute('SELECT metadata FROM clips WHERE id=?', (clip_id,)).fetchone()
+        return json.loads(row['metadata']) if row else None
+
+    def audit(self, event, actor, report_id, clip_id):
+        with self.connect() as database:
+            database.execute('INSERT INTO audit_events VALUES (?,?,?,?,?)',
+                             (utc(), event, actor, report_id, clip_id))

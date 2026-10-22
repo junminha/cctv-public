@@ -1,0 +1,12 @@
+{
+  "source_url": "https://www.data.go.kr/data/15082060/fileData.do",
+  "download_url": "https://www.data.go.kr/cmm/cmm/fileDownload.do?atchFileId=FILE_000000003578112&fileDetailSn=1&insertDataPrcus=N",
+  "retrieved_at": "2026-10-22T01:37:30.585397+00:00",
+  "http_status": 200,
+  "content_type": "application/octet-stream; charset=UTF-8",
+  "content_disposition": "attachment; filename=\"ë¶ì°ê´ì­ì_ë°©ë²ì©CCTV ì ë³´_20251231(ê³µê³µë°ì´í°í¬í¸).csv\"",
+  "raw_sha256": "7c1b73c9ffe448398e25cca2fa9d91a743ac6604125c07d3fd1bfbe84b4342c0",
+  "raw_bytes": 2179418,
+  "download_filename": "부산광역시_방범용CCTV 정보_20251231(공공데이터포털).csv",
+  "normalized_sha256": "df0dc0a0787e67ef345c6a14e700a3a96eda388f609a02b581568629a3591893"
+}

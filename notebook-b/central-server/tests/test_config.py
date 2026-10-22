@@ -14,6 +14,7 @@ def config_env(monkeypatch, tmp_path):
     path = tmp_path / 'secrets.json'
     path.write_text(json.dumps({'tokens': {TOKEN: {'role': 'admin', 'subject': 'operator'}}}))
     monkeypatch.setenv('CCTV_B_SECRETS_FILE', str(path))
+    monkeypatch.setenv('CCTV_A_SECRETS_FILE', str(tmp_path / 'a-secrets.json'))
     return path
 
 
@@ -63,4 +64,28 @@ def test_missing_secrets_and_partial_adapter_configuration_fail_closed(config_en
     monkeypatch.setenv('CCTV_B_TOKENS', json.dumps({TOKEN: {'role': 'admin', 'subject': 'operator'}}))
     monkeypatch.setenv('CCTV_ADAPTER_URL', 'https://a.example')
     with pytest.raises(ValueError):
+        load_settings()
+
+
+def test_a_secret_file_is_loaded_without_changing_b_identities(config_env, monkeypatch):
+    path = config_env.parent / 'a-secrets.json'
+    path.write_text(json.dumps({'token': 'a-token-for-test', 'rtsp_user': 'reader',
+                                'rtsp_password': 'private-test-password'}), encoding='utf-8-sig')
+    settings = load_settings()
+    assert settings.adapter_url == 'https://notebook-a.example.invalid'
+    assert settings.adapter_token == 'a-token-for-test'
+    assert settings.rtsp_user == 'reader'
+    assert settings.rtsp_password == 'private-test-password'
+    assert settings.tokens[TOKEN]['subject'] == 'operator'
+    assert 'a-token-for-test' not in repr(settings)
+    assert 'private-test-password' not in repr(settings)
+    monkeypatch.setenv('CCTV_ADAPTER_URL', 'https://override.example')
+    monkeypatch.setenv('CCTV_ADAPTER_TOKEN', 'override-token')
+    assert load_settings().adapter_token == 'override-token'
+
+
+def test_malformed_a_secrets_are_not_silently_ignored(config_env):
+    path = config_env.parent / 'a-secrets.json'
+    path.write_text('{ invalid JSON')
+    with pytest.raises(ValueError, match='A credentials'):
         load_settings()

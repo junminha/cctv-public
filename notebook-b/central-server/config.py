@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
@@ -11,9 +11,12 @@ ROOT = Path(__file__).resolve().parent
 @dataclass(frozen=True)
 class Settings:
     database_path: Path
-    tokens: dict
+    tokens: dict = field(repr=False)
     adapter_url: str = ''
-    adapter_token: str = ''
+    adapter_token: str = field(default='', repr=False)
+    rtsp_user: str = field(default='', repr=False)
+    rtsp_password: str = field(default='', repr=False)
+    clips_dir: Path = ROOT / 'runtime/clips'
 
 
 def load_settings():
@@ -35,8 +38,19 @@ def load_settings():
                 or not isinstance(identity.get('subject'), str) or not identity['subject'].strip()):
             raise ValueError('Every B identity needs a valid role and nonempty subject')
 
-    url = os.environ.get('CCTV_ADAPTER_URL', '').rstrip('/')
-    token = os.environ.get('CCTV_ADAPTER_TOKEN', '')
+    a_path = Path(os.environ.get('CCTV_A_SECRETS_FILE', str(ROOT / 'runtime/a-secrets.json')))
+    a_secrets = {}
+    if a_path.exists():
+        try:
+            a_secrets = json.loads(a_path.read_text(encoding='utf-8-sig'))
+            if not isinstance(a_secrets, dict) or any(not isinstance(a_secrets.get(key), str)
+                    or not a_secrets[key] for key in ('token', 'rtsp_user', 'rtsp_password')):
+                raise ValueError()
+        except (OSError, ValueError, TypeError):
+            raise ValueError('A credentials file is invalid; values suppressed') from None
+    default_url = a_secrets.get('adapter_url', 'https://notebook-a.example.invalid') if a_secrets else ''
+    url = os.environ.get('CCTV_ADAPTER_URL', default_url).rstrip('/')
+    token = os.environ.get('CCTV_ADAPTER_TOKEN', a_secrets.get('token', ''))
     if bool(url) != bool(token):
         raise ValueError('Set both CCTV_ADAPTER_URL and CCTV_ADAPTER_TOKEN')
     if url:
@@ -55,4 +69,5 @@ def load_settings():
         if not token.isascii() or any(character.isspace() for character in token):
             raise ValueError('Invalid A Adapter token format')
     return Settings(Path(os.environ.get('CCTV_B_DATABASE', str(ROOT / 'runtime/central.sqlite3'))),
-                    tokens, url, token)
+                    tokens, url, token, a_secrets.get('rtsp_user', ''), a_secrets.get('rtsp_password', ''),
+                    Path(os.environ.get('CCTV_B_CLIPS_DIR', str(ROOT / 'runtime/clips'))))

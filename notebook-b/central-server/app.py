@@ -3,13 +3,14 @@ import hmac
 from typing import Annotated
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query
-from fastapi.responses import JSONResponse
+from fastapi import Depends, FastAPI, HTTPException, Path, Query
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from pydantic import AwareDatetime
 
 from adapter import Adapter, AdapterError
-from models import CameraId, LocationInput, ReportInput, utc
+from clips import Clips
+from models import CameraId, LocationInput, PreserveInput, ReportInput, UtcDatetime, utc
+from public_catalog import list_cameras as public_cameras
 from store import Store
 
 
@@ -19,6 +20,8 @@ def create_app(settings, adapter_http=None):
         app.state.store = Store(settings.database_path)
         with httpx.Client(timeout=10, follow_redirects=False, trust_env=False) as http:
             app.state.adapter = Adapter(settings, adapter_http if adapter_http is not None else http)
+            folder = getattr(settings, 'clips_dir', settings.database_path.parent / 'clips')
+            app.state.clips = Clips(folder, app.state.store, app.state.adapter)
             yield
 
     app = FastAPI(title='CCTV B Central Server', version='0.1.0', lifespan=lifespan)
@@ -105,6 +108,23 @@ def create_app(settings, adapter_http=None):
     def cameras():
         return {'cameras': app.state.store.cameras()}
 
+    @app.get('/api/v1/admin/public-cameras', dependencies=[Depends(admin)])
+    def public_locations(west: float | None = None, south: float | None = None,
+                         east: float | None = None, north: float | None = None,
+                         limit: Annotated[int, Query(ge=1, le=1000)] = 100,
+                         offset: Annotated[int, Query(ge=0)] = 0):
+        values = (west, south, east, north)
+        if any(value is not None for value in values) and any(value is None for value in values):
+            raise HTTPException(422, 'Specify all four bounds together')
+        try:
+            return public_cameras(None if west is None else values, limit, offset)
+        except ValueError:
+            raise HTTPException(422, 'Invalid geographic bounds') from None
+
+    @app.get('/api/v1/admin/agent/health', dependencies=[Depends(admin)])
+    def agent_health():
+        return app.state.adapter.health()
+
     @app.put('/api/v1/admin/cameras/{camera_id}/location', dependencies=[Depends(admin)])
     def locate(camera_id: CameraId, location: LocationInput):
         if not app.state.store.locate(camera_id, location):
@@ -118,11 +138,26 @@ def create_app(settings, adapter_http=None):
                 'cameras': app.state.store.candidates(report)}
 
     @app.get('/api/v1/admin/recordings', dependencies=[Depends(admin)])
-    def recordings(camera_id: CameraId, start: AwareDatetime, end: AwareDatetime):
+    def recordings(camera_id: CameraId, start: UtcDatetime, end: UtcDatetime):
         if start >= end:
             raise HTTPException(422, 'Start must precede end')
         if camera_id not in {camera['id'] for camera in app.state.store.cameras()}:
             raise HTTPException(404, 'Camera not found')
         return app.state.adapter.recordings(camera_id, utc(start), utc(end))
+
+    @app.post('/api/v1/admin/reports/{report_id}/preserve', status_code=201)
+    def preserve(report_id: str, payload: PreserveInput, identity: Annotated[dict, Depends(admin)]):
+        return app.state.clips.preserve(find_report(report_id), payload, identity['subject'])
+
+    @app.get('/api/v1/admin/reports/{report_id}/clips', dependencies=[Depends(admin)])
+    def clips(report_id: str):
+        find_report(report_id)
+        return {'clips': app.state.store.clips(report_id)}
+
+    @app.get('/api/v1/admin/clips/{clip_id}/download')
+    def download(clip_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+                 identity: Annotated[dict, Depends(admin)]):
+        path = app.state.clips.download(clip_id, identity['subject'])
+        return FileResponse(path, media_type='video/mp4', filename=clip_id + '.mp4')
 
     return app

@@ -82,3 +82,43 @@ B 기본 주소는 `http://127.0.0.1:8000`. 외부 노출은 별도 HTTPS 구성
 카메라 ID는 A에서 받은 ID만 사용하며 미등록 카메라 좌표를 임의 생성하지 않는다.
 녹화 조회는 timezone 있는 `start < end`이며 A가 제공한 구간을 반환한다.
 이 단계는 파일 추출/보존이나 실제 영상 수신을 수행하지 않는다.
+
+## B 영상 연동·보존 확장
+
+이 확장이 적용되면 위 1차 구현의 파일 추출/보존 제한을 대체한다. AI worker는 계속 미구현이다.
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| GET | `/api/v1/admin/agent/health` | 관리자, A 상태·카메라를 검증된 필드만 조회 |
+| POST | `/api/v1/admin/reports/{id}/preserve` | 관리자, 지정 녹화구간 추출·해시/바이트/영상 확인 후 B 보관 |
+| GET | `/api/v1/admin/reports/{id}/clips` | 관리자, 사건별 보존 목록 |
+| GET | `/api/v1/admin/clips/{clip_id}/download` | 관리자, B 보관 파일 무결성 재확인 후 다운로드·감사 기록 |
+
+보존 입력: `camera_id,start`(timezone 필수), `duration`(0초 초과~3600초).
+미등록 카메라 404, 미승인/신고 위치종류 불일치 403, 녹화구간 공백 409,
+동시 보존 중 429, A 장애/도구 미설정/저장공간 부족 503,
+잘못된 A 메타데이터·크기·해시·영상 파일 502.
+다운로드 파일 무결성 변조는 409. 요청당 최대 파일 2GiB, 실제 다운로드도 같은 한도.
+
+응답은 `clip_id,report_id,camera_id,start,requested_duration,measured_duration,sha256,bytes,
+upstream_export_id,created_at,source,recording_ranges_cover_request,duration_matches_request,download_path`.
+`source`는 A 원본 녹화에서 remux한 파생본임을 표시한다. 원본 바이트 동일성을 주장하지 않는다.
+`measured_duration`은 ffprobe의 컨테이너 재생 길이이며 전체 디코딩/연속성 증명이 아니다.
+`duration_matches_request`는 길이 차이 1초 이내 여부, 녹화구간 커버 여부는 별도 검사한다.
+둘 다 true여도 정확한 사건 시각·영상 내용은 사람이 확인해야 한다.
+로컬 저장 경로·A 비밀정보는 반환하지 않는다. 실패한 다운로드는 보존 목록에 넣지 않는다.
+
+A 비밀 파일은 B `notebook-b/central-server/runtime/a-secrets.json`에 둔다.
+입력 키는 A에서 받은 `token,rtsp_user,rtsp_password`, `adapter_url`은 선택이다.
+파일에 URL이 없으면 공유 문서의 A HTTPS 주소를 사용한다. `CCTV_ADAPTER_URL/TOKEN`은 파일보다 우선한다.
+JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
+
+## 공개 CCTV 위치 카탈로그
+
+`GET /api/v1/admin/public-cameras` (관리자만): 부산광역시가 공개한 실제 위치 메타데이터.
+선택 필터 `west,south,east,north`는 모두 함께 지정하며 경도·위도 순서의 경계 포함 bbox다.
+`limit` 1~1000(기본 100), `offset` 0 이상. 응답은 `cameras,total,source`.
+`total`은 범위 필터 후·페이지 적용 전 장비 기록 수다.
+원문 출처·자료명 일자·다운로드 시각·품질 제외 집계는 `source`에 유지한다.
+모든 항목은 `metadata_only=true,analysis_available=false`이며 A의 카메라 DB와 별개다.
+카탈로그 조회로 A의 좌표·승인을 변경하거나 실제 영상 후보에 추가하지 않는다.

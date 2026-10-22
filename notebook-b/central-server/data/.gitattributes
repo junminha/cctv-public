@@ -1,0 +1,2 @@
+# Preserve official CP949 bytes and keep its CRLF out of source-code diff checks.
+busan-cctv-source.csv binary
