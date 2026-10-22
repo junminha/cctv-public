@@ -49,7 +49,7 @@ export function Console() {
   const refresh = () => selectedId && api<ReportDetail>(`/api/v1/admin/reports/${selectedId}`).then(setDetail).catch(() => {});
 
   return (
-    <main className="grid flex-1 grid-cols-1 lg:h-[calc(100vh-49px)] lg:grid-cols-[300px_minmax(0,1fr)_460px] lg:overflow-hidden">
+    <main className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)_460px] lg:overflow-hidden">
       <aside className="order-2 border-rule bg-surface lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:border-r">
         <ReportQueue
           reports={reports}
