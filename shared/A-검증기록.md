@@ -26,3 +26,13 @@
 - 변경 후 base 6개·Adapter 4개 테스트 통과.
 - HTTPS Serve 활성화 완료. A 자신이 `https://notebook-a.example.invalid`에 접속해서 시스템 인증서 검증 성공, 무인증 health=401, 인증된 health/cameras/capabilities/stream/recordings=200 확인. 세 카메라 online/recording 확인. B/외부망 수신은 미검증.
 - HTTPS로 실제 3초 녹화 추출 후 인증 다운로드 수행, 응답 SHA256과 다운로드 파일 해시 일치 확인.
+
+## 관제 화면 디자인 변경 검증
+
+- `frontend-design` 적용: 청회색 바탕/흰 조작부/파란 강조, 실제 영상 중심 배치. API·캡처·녹화 프로세스 변경 없이 HTML/CSS/화면 스크립트만 수정.
+- Playwright로 1440×1080 / 1366×768 / 390×844 화면 캡처 및 육안 점검. 노트북 집중 보기에서 세 카메라가 화면 안에 배치되며 모바일 문서 폭은 뷰포트와 같은 390px으로 가로 넘침 없음.
+- 전체 보기 전환, USB 카메라를 집중 보기로 선택, 시스템 정보 창 열기와 Escape 닫기 확인.
+- 실제 녹화 검색 후 선택 영상 readyState=4, 폭1280, currentTime 증가 및 MP4 저장 링크 표시 확인.
+- 실제 자료가 없는 미래 시간 검색은 0개 구간과 시간/카메라 변경 안내 표시. 미선택 상태의 재생 안내 복원 확인.
+- `python notebook-a/cctv-base/tests.py`: 6개 통과. 서비스 재시작 없이 화면 적용, 실제 카메라 연결·녹화 유지.
+- 스크린샷에는 실제 카메라 영상이 포함되므로 로컬 ignored `output/playwright`에만 저장했다.
