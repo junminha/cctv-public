@@ -23,4 +23,6 @@
 - `192.0.2.10:8555`에 별도 RTSP relay를 바인딩. A 자신이 해당 주소에 인증해서 cam-01/02/03 각각 2초 FFmpeg 디코딩 성공. 무인증 RTSP는 401 응답 확인.
 - 실사용하지 않는 Media-over-QUIC(MoQ)가 기본 활성화되어 base/relay 사이 8892 포트 충돌을 일으키는 것을 발견. 양쪽 설정에 `moq: false` 추가 후 정상 시작 확인.
 - TCP 리스너 점검: base의 8554/8765/8888/9996/9997 및 Adapter 8766은 127.0.0.1, relay 8555만 Tailscale IPv4에 바인딩. 8892 리스너 없음.
-- 변경 후 base 6개·Adapter 4개 테스트 통과. HTTPS Serve는 tailnet 기능 활성화 대기, B/외부망 수신은 미검증.
+- 변경 후 base 6개·Adapter 4개 테스트 통과.
+- HTTPS Serve 활성화 완료. A 자신이 `https://notebook-a.example.invalid`에 접속해서 시스템 인증서 검증 성공, 무인증 health=401, 인증된 health/cameras/capabilities/stream/recordings=200 확인. 세 카메라 online/recording 확인. B/외부망 수신은 미검증.
+- HTTPS로 실제 3초 녹화 추출 후 인증 다운로드 수행, 응답 SHA256과 다운로드 파일 해시 일치 확인.

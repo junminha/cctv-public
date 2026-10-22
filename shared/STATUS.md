@@ -10,7 +10,7 @@
 - 실제 수행한 검증 결과는 `A-검증.json`과 `A-검증기록.md`를 참고한다. 결과 파일이 없거나 항목이 NOT_TESTED라면 완료된 것으로 해석하지 않는다.
 - Tailscale 1.104.2 설치 및 A 로그인 확인. A 주소 `192.0.2.10`, 이름 `notebook-a.example.invalid`.
 - 인증 RTSP relay가 A Tailscale 주소의 8555 포트에서 실행 중. A 자신이 Tailscale 주소로 3채널 디코딩 성공, 인증 없는 요청 401 차단 확인. 실제 B/다른 인터넷 수신은 아직 미검증이며 현재 연결된 peer가 없다.
-- HTTPS API는 Tailscale Serve 기능 활성화를 기다리는 중. 예정 주소 `https://notebook-a.example.invalid`. Serve 설정이 완료되기 전에는 이 주소를 동작하는 API로 간주하지 않는다.
+- HTTPS API 활성화 완료: `https://notebook-a.example.invalid`. A 자체 HTTPS 시험에서 인증서 검증·무인증 401·인증된 health/cameras/capabilities/stream/recordings 200 확인. Serve는 tailnet 내부 전용이다.
 - B: FastAPI·SQLite·역할별 인증·신고와 대기 작업 저장·A 메타데이터 연동·승인된 위치 반경 후보 조회를 구현했다. [B 검증 기록](B-검증기록.md) 참고.
 - B의 AI worker, 영상 수신/추출·보존, WebSocket, Next.js 관리자와 신고 앱은 아직 구현하지 않았다. 대기 작업을 분석 성공으로 해석하지 않는다.
 
@@ -18,7 +18,7 @@
 
 1. B GPU는 RTX 3060 Laptop / 6144MiB / 드라이버 610.62 확인. Python 3.11.9 사용. PyTorch CUDA 추론은 아직 미검증이다.
 2. B의 `notebook-b/central-server/start.ps1`로 로컬 서버를 실행할 수 있다. 기본 포트 8000, 실제 비밀 설정과 DB는 Git 제외.
-3. B에 Tailscale을 설치·로그인하고 A의 HTTPS Serve가 활성화되면 URL·A 토큰을 B 환경변수에 설정한다. 토큰은 별도 비공개 전달한다. 실제 HTTPS/RTSP 수신은 후속 검증한다.
+3. B에 Tailscale을 설치·로그인하고 활성화된 A의 URL·A 토큰을 B 로컬 비밀 설정에 전달한다. 토큰은 별도 비공개 전달한다. 실제 HTTPS/RTSP 수신은 후속 검증한다.
 4. B의 FFmpeg·PyTorch CUDA·YOLO/MediaPipe와 신고 반경→후보 저FPS 탐색→집중 분석 worker를 구현·검증한다. 반경 후보 생성만 현재 구현되어 있다.
 5. 첨부 업로드·증거 보존·WebSocket과 Next.js 관리자의 모의 신고를 통합한다. Expo 앱은 마지막이다.
 

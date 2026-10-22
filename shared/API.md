@@ -5,7 +5,7 @@ A의 base는 로컬 전용이며 B는 이 Adapter만 사용한다. 중앙 서버
 ## 연결과 인증
 
 - 개발 로컬: `http://127.0.0.1:8766`.
-- 외부 예정 주소: `https://notebook-a.example.invalid`. HTTPS Serve 활성화 여부는 `STATUS.md`를 확인한다.
+- 외부 주소: `https://notebook-a.example.invalid`. Tailscale Serve 활성화 및 A 자체 HTTPS 시험 완료. 같은 tailnet의 B에서 실제 접속하는 시험은 남아 있다.
 - 인증 RTSP 주소: `rtsp://192.0.2.10:8555/{camera_id}`. A 내부 자체 접속 검증 완료, B 수신은 미검증.
 - 모든 요청: `Authorization: Bearer <A의 secrets.json.token>`.
 - RTSP는 별도 인증 계정 `rtsp_user`/`rtsp_password`를 B 비밀 설정에 전달한다. URL 또는 GitHub에 자격증명을 넣지 않는다.
