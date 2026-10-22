@@ -9,8 +9,12 @@ TOKEN = 'local-config-test-' + 'x' * 32
 
 @pytest.fixture
 def config_env(monkeypatch, tmp_path):
-    for key in ('CCTV_B_TOKENS', 'CCTV_ADAPTER_URL', 'CCTV_ADAPTER_TOKEN', 'CCTV_B_DATABASE'):
+    for key in ('CCTV_B_TOKENS', 'CCTV_ADAPTER_URL', 'CCTV_ADAPTER_TOKEN', 'CCTV_B_DATABASE',
+                'OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENAI_TRANSCRIPTION_MODEL', 'CCTV_WORKER_ENABLED',
+                'CCTV_AI_DEVICE', 'CCTV_YOLO_MODEL', 'CCTV_POSE_MODEL', 'CCTV_AUTO_ANALYZE'):
         monkeypatch.delenv(key, raising=False)
+    # Never read the operator's real .env during tests.
+    monkeypatch.setenv('CCTV_B_ENV_FILE', str(tmp_path / '.env'))
     path = tmp_path / 'secrets.json'
     path.write_text(json.dumps({'tokens': {TOKEN: {'role': 'admin', 'subject': 'operator'}}}))
     monkeypatch.setenv('CCTV_B_SECRETS_FILE', str(path))
@@ -88,4 +92,38 @@ def test_malformed_a_secrets_are_not_silently_ignored(config_env):
     path = config_env.parent / 'a-secrets.json'
     path.write_text('{ invalid JSON')
     with pytest.raises(ValueError, match='A credentials'):
+        load_settings()
+
+
+def test_env_file_is_loaded_but_process_environment_wins(config_env, monkeypatch):
+    env_file = config_env.parent / '.env'
+    env_file.write_text('OPENAI_API_KEY=sk-file-value\nOPENAI_MODEL=file-model\n'
+                        'CCTV_WORKER_ENABLED=true\nCCTV_AI_DEVICE=cpu\n', encoding='utf-8')
+    settings = load_settings()
+    assert settings.openai_api_key == 'sk-file-value'
+    assert settings.openai_model == 'file-model'
+    assert settings.worker_enabled is True
+    assert settings.ai_device == 'cpu'
+    assert 'sk-file-value' not in repr(settings)
+    monkeypatch.setenv('OPENAI_MODEL', 'env-model')
+    monkeypatch.setenv('OPENAI_API_KEY', '')
+    settings = load_settings()
+    assert settings.openai_model == 'env-model'
+    assert settings.openai_api_key == ''
+
+
+def test_ai_defaults_without_env_file(config_env):
+    settings = load_settings()
+    assert settings.openai_api_key == ''
+    assert settings.worker_enabled is False
+    assert settings.auto_analyze is True
+    assert settings.ai_device == 'auto'
+    assert settings.attachments_dir.name == 'attachments'
+    assert settings.analysis_dir.name == 'analysis'
+
+
+@pytest.mark.parametrize('key,value', [('CCTV_WORKER_ENABLED', 'maybe'), ('CCTV_AI_DEVICE', 'tpu')])
+def test_invalid_ai_settings_fail_closed(config_env, monkeypatch, key, value):
+    monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError):
         load_settings()

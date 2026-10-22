@@ -33,7 +33,8 @@ def test_uvicorn_factory_loads_local_settings_and_serves_authenticated_intake(tm
                    if not key.startswith(('CCTV_B_', 'CCTV_ADAPTER_'))}
     environment.update(CCTV_B_SECRETS_FILE=str(credentials_path),
                        CCTV_B_DATABASE=str(tmp_path / 'http.sqlite3'),
-                       CCTV_A_SECRETS_FILE=str(tmp_path / 'a-secrets.json'))
+                       CCTV_A_SECRETS_FILE=str(tmp_path / 'a-secrets.json'),
+                       CCTV_B_ENV_FILE=str(tmp_path / '.env'), CCTV_WORKER_ENABLED='false')
     process = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'server:application', '--factory',
                                 '--app-dir', str(root), '--host', '127.0.0.1', '--port', str(port)],
                                env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,

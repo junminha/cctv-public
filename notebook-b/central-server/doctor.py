@@ -46,6 +46,16 @@ def diagnose():
                                       'available': torch.cuda.is_available()}
         except (ImportError, OSError):
             result['pytorch_cuda'] = 'IMPORT_FAILED'
+    from config import load_settings
+    try:
+        settings = load_settings()
+        result['models'] = {name: Path(path).is_file() for name, path in
+                            (('yolo', settings.yolo_model), ('pose', settings.pose_model))}
+        result['worker_enabled'] = settings.worker_enabled
+        result['openai_key_configured'] = bool(settings.openai_api_key)
+        result['openai_model'] = settings.openai_model
+    except ValueError as exc:
+        result['settings'] = str(exc)
     return result
 
 

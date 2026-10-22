@@ -27,6 +27,32 @@ def ranges_cover(ranges, start, end):
     return False
 
 
+def download_export(adapter, exported, partial):
+    """Stream an A export to a new file, enforcing declared size and SHA256."""
+    digest, length = hashlib.sha256(), 0
+    try:
+        # Only reconstruct the contracted path on the configured A host.
+        with adapter.http.stream('GET', adapter.url + '/agent/v1/exports/' + exported.export_id,
+                headers={'Authorization': 'Bearer ' + adapter.token}, timeout=60) as response:
+            if response.status_code != 200:
+                raise AdapterError(503, 'A export download failed')
+            deadline = time.monotonic() + 180
+            with partial.open('xb') as output:
+                for chunk in response.iter_bytes():
+                    if time.monotonic() > deadline:
+                        raise AdapterError(503, 'A export download exceeded the time limit')
+                    length += len(chunk)
+                    if length > exported.bytes:
+                        raise AdapterError(502, 'A export exceeds the declared size')
+                    digest.update(chunk)
+                    output.write(chunk)
+    except httpx.RequestError:
+        raise AdapterError(503, 'A export download was interrupted') from None
+    if length != exported.bytes or digest.hexdigest() != exported.sha256:
+        raise AdapterError(502, 'A export hash or size mismatch')
+    return digest.hexdigest(), length
+
+
 class Clips:
     def __init__(self, folder, store, adapter):
         self.folder, self.store, self.adapter = Path(folder), store, adapter
@@ -66,31 +92,11 @@ class Clips:
         target = self.folder / (clip_id + '.mp4')
         saved = False
         try:
-            digest, length = hashlib.sha256(), 0
-            try:
-                # Only reconstruct the contracted path on the configured A host.
-                with self.adapter.http.stream('GET', self.adapter.url + '/agent/v1/exports/' + exported.export_id,
-                        headers={'Authorization': 'Bearer ' + self.adapter.token}, timeout=60) as response:
-                    if response.status_code != 200:
-                        raise AdapterError(503, 'A export download failed')
-                    deadline = time.monotonic() + 180
-                    with partial.open('xb') as output:
-                        for chunk in response.iter_bytes():
-                            if time.monotonic() > deadline:
-                                raise AdapterError(503, 'A export download exceeded the time limit')
-                            length += len(chunk)
-                            if length > exported.bytes:
-                                raise AdapterError(502, 'A export exceeds the declared size')
-                            digest.update(chunk)
-                            output.write(chunk)
-            except httpx.RequestError:
-                raise AdapterError(503, 'A export download was interrupted') from None
-            if length != exported.bytes or digest.hexdigest() != exported.sha256:
-                raise AdapterError(502, 'A export hash or size mismatch')
+            sha256, length = download_export(self.adapter, exported, partial)
             measured = inspect_clip(partial)
             metadata = {'clip_id': clip_id, 'report_id': report['report_id'], 'camera_id': request.camera_id,
                         'start': utc(request.start), 'requested_duration': request.duration,
-                        'measured_duration': measured, 'sha256': digest.hexdigest(), 'bytes': length,
+                        'measured_duration': measured, 'sha256': sha256, 'bytes': length,
                         'upstream_export_id': exported.export_id, 'created_at': utc(),
                         'upstream_created_at': utc(exported.created),
                         'source': 'A recording export; remuxed derivative',

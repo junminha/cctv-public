@@ -131,3 +131,41 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 추가 카메라의 `approved=true` 등록 요청은403으로 거부한다.
 연결된 카메라 목록의 `demo_source`는 이 세 웹캠 여부만 나타내며 촬영 대상의 동의·분석 승인을 대신하지 않는다.
 현재 서버에는 AI 학습 기능이 없으며, 향후 AI worker도 같은 입력 제한을 적용한다.
+
+## B 분석·첨부·관제 확장 (v0.2)
+
+이 확장이 적용되면 위 1차 구현의 "AI worker 미구현" 설명을 대체한다. 실제 A 웹캠 분석은 위치·촬영 대상 동의 승인 등록 뒤에만 수행한다.
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| POST | `/api/v1/reports/{id}/attachments` | 신고 소유자·관리자, multipart `file` + `consent=true`. 201 첨부 메타데이터 |
+| GET | `/api/v1/reports/{id}/attachments/{attachment_id}` | 신고 소유자·관리자, 파일 수신·감사 기록 |
+| POST | `/api/v1/admin/reports/{id}/analyze` | 관리자, `{mode,source,duration,sample_fps,focus_fps,top_k}` 202 작업 접수 |
+| POST | `/api/v1/admin/reports/{id}/confirm` | 관리자, `{note}` 담당자 확인 기록 |
+| POST | `/api/v1/admin/reports/{id}/close` | 관리자, `{note}` 사건 종결 기록 |
+| GET | `/api/v1/admin/reports/{id}/artifacts/{kind}/{owner}/{file}` | 관리자, 근거 이미지. kind=scan/focus/all/phone, file=evidence-01~03.jpg |
+| GET | `/api/v1/admin/cameras/{id}/snapshot` | 관리자, 승인된 세 웹캠만 최근 JPEG (2초 캐시) |
+| GET | `/api/v1/admin/metrics` | 관리자, 접수/작업/결과 통계, 지연(mean/median/p95), 선택·전체 비교 |
+| POST | `/api/v1/admin/ws-ticket` | 관리자, 30초 단회 ticket |
+| WS | `/ws/v1/admin` | 첫 메시지 `{ticket}`. 허용 Origin만. 2초마다 `{type:'snapshot',reports,cameras,time}` |
+
+- 분석 입력: `mode` selective(기본)/all/benchmark, `source` live(기본)/recording, `duration` 2~60초(기본10),
+  `sample_fps` 0~5(기본1), `focus_fps` 0~10(기본3), `top_k` 1~3(기본1). 실행 중 재요청 409, worker 꺼짐 503.
+- `CCTV_WORKER_ENABLED=true`, `CCTV_AUTO_ANALYZE=true`이면 신고 접수 시 기본 분석을 자동 대기열에 넣는다.
+  발생 시각이 120초 넘게 지난 신고는 recording, 그 외 live를 사용한다.
+- 작업 `job`: `state`(queued/running/completed/failed), `stage`, `progress`, `error`, `params`(관리자만).
+  단계: RECEIVED → CLASSIFIED → CANDIDATES_FOUND → SCANNING → FOCUSED_ANALYSIS → SUMMARIZING → 결과.
+  결과 stage: REVIEW_REQUIRED, VIDEO_NOT_VISIBLE, NO_CAMERA_IN_RANGE, CAMERA_UNAVAILABLE, RECORDING_UNAVAILABLE,
+  MANUAL_REVIEW_REQUIRED(failed). 신고자 상태 조회에는 `params`를 넣지 않는다.
+- 관리자 신고 상세는 기존 필드 + `attachments[]`, `analysis`, `review`, `events[]`.
+  `analysis`: `classification`, `candidates`, `cameras[]`(status, window, scan/focus/all, event_score, rank_score),
+  `selected_camera_ids`, `summary`, `phone[]`, `benchmark`, `outcome`, `latency_seconds`, `warnings`.
+- 후보 순위: `(0.20·근접 + 0.15·시간일치 + 0.45·영상 관련성)/0.80` (첨부 맥락 항목은 재정규화로 제외).
+  관련성 0인 카메라는 집중 분석하지 않는다. 모든 관찰은 `verified=false`, 요약은 `requires_human_review=true`.
+- 자동 분석 클립은 `runtime/analysis` 캐시이며 사건 보존 목록(`clips`)과 별개다. 보존은 기존 preserve API로 한다.
+- 첨부: 파일 서명으로 형식 판정(JPEG/PNG/WebP, WAV/MP3/M4A/WebM 음성, MP4/MOV/WebM 영상).
+  이미지 15MiB, 음성 25MiB, 영상 100MiB, 신고당 10개. 다른 신고자의 첨부는 404.
+- 카메라 위치 입력에 선택 `zone`(최대 100자) 추가.
+- OpenAI: B `.env`의 `OPENAI_API_KEY`. 기본 모델 `gpt-6-luna`, 전사 `gpt-transcribe`(2026-10-22 공식 문서 기준
+  `gpt-4.1-mini`·`gpt-4o-mini-transcribe`는 지원 종료 예정). 키 없음·실패 시 `source=local_*`과 경고로 처리한다.
+- Live 분석은 A stream API의 RTSP URL에 B 비밀 설정의 RTSP 계정을 넣어 FFmpeg가 TCP로 읽는다. 자격증명은 응답·DB에 저장하지 않는다.

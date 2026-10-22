@@ -1,0 +1,7 @@
+# B notebook GPU inference. PyTorch CUDA 13.0 wheels (driver 610.62 verified on RTX 3060 Laptop):
+--index-url https://download.pytorch.org/whl/cu130
+--extra-index-url https://pypi.org/simple
+torch==2.14.1+cu130
+torchvision==0.29.1+cu130
+ultralytics==8.4.183
+mediapipe==1.1.1

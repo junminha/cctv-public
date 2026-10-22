@@ -141,7 +141,8 @@ def test_preservation_requires_registered_approved_matching_camera(preservation)
 def test_other_cctv_cannot_be_preserved_even_with_legacy_approval(preservation):
     client, report_id, _, settings = preservation
     with sqlite3.connect(settings.database_path) as database:
-        database.execute('''INSERT INTO cameras VALUES
+        database.execute('''INSERT INTO cameras
+            (id,name,online,recording,synced_at,latitude,longitude,kind,approved) VALUES
             ('cam-04','Other CCTV',1,1,'2026-10-22T00:00:00Z',37.5,127,'demo',1)''')
     assert preserve(client, report_id, camera_id='cam-04').status_code == 403
 

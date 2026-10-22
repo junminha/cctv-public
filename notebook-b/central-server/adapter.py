@@ -1,7 +1,7 @@
 import httpx
 from pydantic import ValidationError
 
-from models import AgentHealth, CameraList, ExportMetadata, RecordingList, utc
+from models import AgentHealth, CameraList, ExportMetadata, RecordingList, StreamInfo, utc
 
 
 class AdapterError(Exception):
@@ -44,6 +44,12 @@ class Adapter:
 
     def health(self):
         return self.get('/agent/v1/health', AgentHealth).model_dump(mode='json')
+
+    def stream(self, camera_id):
+        result = self.get(f'/agent/v1/cameras/{camera_id}/stream', StreamInfo)
+        if result.camera_id != camera_id or not result.url.endswith('/' + camera_id):
+            raise AdapterError(502, 'A Adapter returned a different stream')
+        return result.url
 
     def recordings(self, camera_id, start, end):
         result = self.get('/agent/v1/recordings', RecordingList,

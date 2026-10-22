@@ -37,7 +37,32 @@ class Store:
                     created_at TEXT NOT NULL, event TEXT NOT NULL, actor TEXT NOT NULL,
                     report_id TEXT NOT NULL, clip_id TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS attachments (
+                    id TEXT PRIMARY KEY, report_id TEXT NOT NULL REFERENCES reports(id),
+                    metadata TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS analyses (
+                    report_id TEXT PRIMARY KEY REFERENCES reports(id), result TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS events (
+                    report_id TEXT NOT NULL REFERENCES reports(id), created_at TEXT NOT NULL,
+                    type TEXT NOT NULL, message TEXT NOT NULL, data TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS reviews (
+                    report_id TEXT PRIMARY KEY REFERENCES reports(id), confirmed_at TEXT, confirmed_by TEXT,
+                    confirm_note TEXT, closed_at TEXT, closed_by TEXT, close_note TEXT
+                );
             ''')
+            # Additive migrations for databases created by earlier B versions.
+            for table, column, kind in (('jobs', 'params', 'TEXT'), ('jobs', 'error', 'TEXT'),
+                                        ('jobs', 'updated_at', 'TEXT'), ('cameras', 'zone', 'TEXT')):
+                columns = {row['name'] for row in database.execute(f'PRAGMA table_info({table})')}
+                if column not in columns:
+                    database.execute(f'ALTER TABLE {table} ADD COLUMN {column} {kind}')
+            # A worker that died mid-job must not leave the report stuck as running.
+            database.execute("""UPDATE jobs SET state='failed', stage='MANUAL_REVIEW_REQUIRED',
+                                error='B server restarted during analysis' WHERE state='running'""")
 
     @contextmanager
     def connect(self):
@@ -50,7 +75,7 @@ class Store:
         finally:
             database.close()
 
-    def create_report(self, payload, owner, source):
+    def create_report(self, payload, owner, source, analysis=None):
         report_id, job_id, created = uuid4().hex, uuid4().hex, utc()
         data = payload.model_dump(mode='json')
         if payload.occurred_at is not None:
@@ -58,8 +83,12 @@ class Store:
         with self.connect() as database:
             database.execute('INSERT INTO reports VALUES (?, ?, ?, ?, ?)',
                              (report_id, owner, source, created, json.dumps(data, ensure_ascii=False)))
-            database.execute('INSERT INTO jobs VALUES (?, ?, ?, ?, ?)',
-                             (job_id, report_id, 'queued', 'awaiting_worker', 0))
+            database.execute('''INSERT INTO jobs (id,report_id,state,stage,progress,params,updated_at)
+                                VALUES (?,?,?,?,?,?,?)''',
+                             (job_id, report_id, 'queued', 'awaiting_worker', 0,
+                              json.dumps(analysis) if analysis else None, created))
+            database.execute('INSERT INTO events VALUES (?,?,?,?,?)',
+                             (report_id, created, 'received', '신고 접수', '{}'))
         return self.report(report_id)
 
     def report(self, report_id):
@@ -69,7 +98,124 @@ class Store:
                 return None
             job = database.execute('SELECT * FROM jobs WHERE report_id=?', (report_id,)).fetchone()
         return {**json.loads(row['payload']), 'report_id': row['id'], 'owner': row['owner'],
-                'source': row['source'], 'created_at': row['created_at'], 'job': dict(job)}
+                'source': row['source'], 'created_at': row['created_at'], 'job': self._job(job)}
+
+    @staticmethod
+    def _job(row):
+        job = dict(row)
+        job['params'] = json.loads(job['params']) if job.get('params') else None
+        return job
+
+    def detail(self, report_id):
+        report = self.report(report_id)
+        if report is None:
+            return None
+        with self.connect() as database:
+            analysis = database.execute('SELECT result FROM analyses WHERE report_id=?', (report_id,)).fetchone()
+            review = database.execute('SELECT * FROM reviews WHERE report_id=?', (report_id,)).fetchone()
+        report.update(attachments=self.attachments(report_id), events=self.events(report_id),
+                      analysis=json.loads(analysis['result']) if analysis else None,
+                      review=dict(review) if review else None)
+        return report
+
+    def request_analysis(self, report_id, params):
+        """Queue (or re-queue) the report's single analysis job; False while it is running."""
+        now = utc()
+        with self.connect() as database:
+            cursor = database.execute('''UPDATE jobs SET state='queued', stage='awaiting_worker', progress=0,
+                                         params=?, error=NULL, updated_at=? WHERE report_id=? AND state!='running' ''',
+                                      (json.dumps(params), now, report_id))
+            if cursor.rowcount:
+                database.execute('INSERT INTO events VALUES (?,?,?,?,?)',
+                                 (report_id, now, 'analysis_requested', '분석 요청', json.dumps(params)))
+        return cursor.rowcount > 0
+
+    def claim_job(self):
+        with self.connect() as database:
+            row = database.execute('''SELECT jobs.id FROM jobs JOIN reports ON reports.id=jobs.report_id
+                                      WHERE state='queued' AND params IS NOT NULL
+                                      ORDER BY jobs.updated_at, created_at LIMIT 1''').fetchone()
+            if row is None:
+                return None
+            claimed = database.execute('''UPDATE jobs SET state='running', stage='RECEIVED', updated_at=?
+                                          WHERE id=? AND state='queued' ''', (utc(), row['id'])).rowcount
+            job = database.execute('SELECT * FROM jobs WHERE id=?', (row['id'],)).fetchone()
+        return self._job(job) if claimed else None
+
+    def update_job(self, job_id, stage, progress, state='running', error=None):
+        with self.connect() as database:
+            database.execute('UPDATE jobs SET state=?, stage=?, progress=?, error=?, updated_at=? WHERE id=?',
+                             (state, stage, progress, error, utc(), job_id))
+
+    def save_analysis(self, report_id, result):
+        with self.connect() as database:
+            database.execute('''INSERT INTO analyses VALUES (?,?,?) ON CONFLICT(report_id)
+                                DO UPDATE SET result=excluded.result, updated_at=excluded.updated_at''',
+                             (report_id, json.dumps(result, ensure_ascii=False), utc()))
+
+    def event(self, report_id, kind, message, data=None):
+        with self.connect() as database:
+            database.execute('INSERT INTO events VALUES (?,?,?,?,?)',
+                             (report_id, utc(), kind, message, json.dumps(data or {}, ensure_ascii=False)))
+
+    def events(self, report_id):
+        with self.connect() as database:
+            rows = database.execute('SELECT * FROM events WHERE report_id=? ORDER BY rowid', (report_id,)).fetchall()
+        return [{**dict(row), 'data': json.loads(row['data'])} for row in rows]
+
+    def save_attachment(self, metadata, actor):
+        now = utc()
+        with self.connect() as database:
+            database.execute('INSERT INTO attachments VALUES (?,?,?)',
+                             (metadata['attachment_id'], metadata['report_id'],
+                              json.dumps(metadata, ensure_ascii=False)))
+            database.execute('INSERT INTO audit_events VALUES (?,?,?,?,?)',
+                             (now, 'attachment_uploaded', actor, metadata['report_id'], metadata['attachment_id']))
+            database.execute('INSERT INTO events VALUES (?,?,?,?,?)',
+                             (metadata['report_id'], now, 'attachment', '첨부 자료 수신',
+                              json.dumps({'attachment_id': metadata['attachment_id'], 'kind': metadata['kind']})))
+
+    def attachments(self, report_id):
+        with self.connect() as database:
+            rows = database.execute('SELECT metadata FROM attachments WHERE report_id=? ORDER BY rowid',
+                                    (report_id,)).fetchall()
+        return [json.loads(row['metadata']) for row in rows]
+
+    def review(self, report_id, action, actor, note):
+        now = utc()
+        prefix, column = ('confirmed', 'confirm_note') if action == 'confirm' else ('closed', 'close_note')
+        with self.connect() as database:
+            database.execute('INSERT INTO reviews (report_id) VALUES (?) ON CONFLICT(report_id) DO NOTHING',
+                             (report_id,))
+            database.execute(f'UPDATE reviews SET {prefix}_at=?, {prefix}_by=?, {column}=? WHERE report_id=?',
+                             (now, actor, note, report_id))
+            database.execute('INSERT INTO events VALUES (?,?,?,?,?)',
+                             (report_id, now, prefix, '담당자 확인' if action == 'confirm' else '사건 종결',
+                              json.dumps({'by': actor, 'note': note}, ensure_ascii=False)))
+            database.execute('INSERT INTO audit_events VALUES (?,?,?,?,?)',
+                             (now, 'report_' + prefix, actor, report_id, ''))
+            row = database.execute('SELECT * FROM reviews WHERE report_id=?', (report_id,)).fetchone()
+        return dict(row)
+
+    def metrics(self):
+        with self.connect() as database:
+            def count(sql):
+                return database.execute(sql).fetchone()[0]
+
+            def grouped(sql):
+                return {row[0]: row[1] for row in database.execute(sql)}
+            analyses = [json.loads(row['result']) for row in
+                        database.execute('SELECT result FROM analyses ORDER BY updated_at DESC LIMIT 200')]
+            return {
+                'reports': grouped('SELECT source, COUNT(*) FROM reports GROUP BY source'),
+                'jobs': grouped('SELECT state, COUNT(*) FROM jobs GROUP BY state'),
+                'stages': grouped('SELECT stage, COUNT(*) FROM jobs GROUP BY stage'),
+                'attachments': count('SELECT COUNT(*) FROM attachments'),
+                'preserved_clips': count('SELECT COUNT(*) FROM clips'),
+                'confirmed': count('SELECT COUNT(*) FROM reviews WHERE confirmed_at IS NOT NULL'),
+                'closed': count('SELECT COUNT(*) FROM reviews WHERE closed_at IS NOT NULL'),
+                'analyses': analyses,
+            }
 
     def reports(self, limit, offset):
         with self.connect() as database:
@@ -82,7 +228,7 @@ class Store:
             rows = database.execute('''SELECT jobs.* FROM jobs JOIN reports ON reports.id=jobs.report_id
                                        WHERE state='queued' ORDER BY created_at, jobs.id LIMIT ?''',
                                     (limit,)).fetchall()
-        return [dict(row) for row in rows]
+        return [self._job(row) for row in rows]
 
     def sync(self, snapshots):
         now = utc()
@@ -115,9 +261,9 @@ class Store:
 
     def locate(self, camera_id, location):
         with self.connect() as database:
-            cursor = database.execute('''UPDATE cameras SET latitude=?,longitude=?,kind=?,approved=?
-                                         WHERE id=?''', (location.latitude, location.longitude,
-                                                        location.kind, location.approved, camera_id))
+            cursor = database.execute('''UPDATE cameras SET latitude=?,longitude=?,kind=?,approved=?,zone=?
+                                         WHERE id=?''', (location.latitude, location.longitude, location.kind,
+                                                        location.approved, location.zone, camera_id))
         return cursor.rowcount > 0
 
     def candidates(self, report):

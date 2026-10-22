@@ -49,6 +49,7 @@ class LocationInput(BaseModel):
     longitude: Longitude
     kind: Literal['real', 'demo']
     approved: StrictBool
+    zone: str | None = Field(default=None, max_length=100)
 
 
 class CameraSnapshot(BaseModel):
@@ -112,3 +113,24 @@ class ExportMetadata(BaseModel):
     bytes: StrictInt = Field(gt=0, le=2 * 1024 ** 3)
     download_path: str
     created: UtcDatetime
+
+
+class AnalyzeInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    mode: Literal['selective', 'all', 'benchmark'] = 'selective'
+    source: Literal['recording', 'live'] = 'live'
+    duration: float = Field(default=10, ge=2, le=60, allow_inf_nan=False)
+    sample_fps: float = Field(default=1, gt=0, le=5, allow_inf_nan=False)
+    focus_fps: float = Field(default=3, gt=0, le=10, allow_inf_nan=False)
+    top_k: StrictInt = Field(default=1, ge=1, le=3)
+
+
+class ReviewInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    note: str = Field(default='', max_length=2000)
+
+
+class StreamInfo(BaseModel):
+    camera_id: CameraId
+    url: str = Field(pattern=r'^rtsp://[0-9a-zA-Z.\-]+(:[0-9]{1,5})?/[a-z0-9][a-z0-9-]{0,63}$')
+    transport: Literal['tcp']
