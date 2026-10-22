@@ -2,6 +2,7 @@
 
 날짜: 2026-10-22. **노트북 B에서 수행**. 대상: `work/b-server`.
 A 기준 커밋: `5f85b05` (A 녹화·Adapter·Tailscale relay 수정 포함).
+구현 커밋: `920baf6`. [초안 PR #1](https://github.com/junminha/cctv/pull/1), main 병합 전.
 
 ## 실제 환경 확인
 

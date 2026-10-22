@@ -21,7 +21,9 @@ A는 HTTPS Adapter로만 읽고, 로컬 장치 경로나 A 프로세스는 다�
 - [x] `adapter.py`와 관리자 카메라 동기화·녹화 조회 구현 후 테스트 통과.
 - [x] 좌표·권한·거리·신선도·real/demo 분리 테스트를 먼저 작성하고 반경 후보 조회 구현.
 - [x] Windows 시작/설정 안내, GPU 진단, 실제 HTTP 서버 기동 검사, 전체 B 테스트와 diff 검토.
-- [ ] 공유 상태 갱신 후 B 브랜치 커밋·업로드. main과 A 작업은 덮어쓰지 않는다.
+- [x] 공유 상태 갱신 후 B 브랜치 커밋·업로드. main과 A 작업은 덮어쓰지 않았다.
+
+업로드: `work/b-server`, 구현 커밋 `920baf6`. [초안 PR #1](https://github.com/junminha/cctv/pull/1).
 
 실제 A 연결은 A Tailscale URL·토큰과 양쪽 로그인 후 검증한다.
 GPU 드라이버 확인은 PyTorch CUDA 추론 성공과 구분한다.
