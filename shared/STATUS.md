@@ -6,6 +6,7 @@
 
 - A: 내장 HD Webcam 1대 + SNAP U2 2대. DirectShow 고유 경로에 cam-01/02/03을 고정 등록.
 - A base: FFmpeg → MediaMTX RTSP/TCP, 로컬 3채널 HLS 화면, 연속 fMP4 녹화, 시간 검색·MP4 재생, 공간 하한·채널 재시도·프로세스 관리 구현.
+- A 화면은 frontend-design 스킬을 적용해 밝은 관제 화면으로 재구성했다. 선택 카메라 집중 보기/전체 보기/전체 화면, 카메라별 녹화 증거·재접속 표시, 검색 결과 옆 과거 재생, 시스템 정보 창과 모바일 배치를 제공한다. 외부 폰트·아이콘·프런트엔드 패키지 의존성은 없다.
 - 별도 Adapter: Bearer 인증, 상태/카메라/녹화구간/추출·SHA256/감사 로그 구현. 별도 Tailscale 전용 RTSP relay 설정 코드 제공.
 - 실제 수행한 검증 결과는 `A-검증.json`과 `A-검증기록.md`를 참고한다. 결과 파일이 없거나 항목이 NOT_TESTED라면 완료된 것으로 해석하지 않는다.
 - Tailscale 1.104.2 설치 및 A 로그인 확인. A 주소 `192.0.2.10`, 이름 `notebook-a.example.invalid`.

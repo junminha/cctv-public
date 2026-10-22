@@ -1,24 +1,1788 @@
 <!doctype html>
-<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>A 노트북 · CCTV</title>
-<style>
-*{box-sizing:border-box}body{margin:0;background:#10151c;color:#e9eef5;font:16px system-ui,sans-serif}header,main{max-width:1500px;margin:auto;padding:24px}header{border-bottom:1px solid #344050;display:flex;justify-content:space-between;align-items:center}h1{font-size:24px;margin:0}p,small{color:#adbccd}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}article,section{border:1px solid #344050;border-radius:10px;padding:16px;background:#19222d}h2{font-size:18px;margin:0 0 10px}iframe{width:100%;aspect-ratio:16/9;border:0;background:#000}section{margin-top:24px}label{display:inline-block;margin:8px}input,select,button{padding:10px;background:#263444;border:1px solid #566880;border-radius:5px;color:white;font:inherit}button{cursor:pointer;background:#176d60}.state{display:block;font-size:14px;margin-top:8px}.ok{color:#66ddae}.bad{color:#ff9e92}video{width:100%;max-height:480px;background:#000;margin-top:15px}#results button{display:block;margin:8px 0;width:100%;text-align:left}#status{max-width:550px}a{color:#7edec7}@media(max-width:850px){.grid{grid-template-columns:1fr}header{display:block}}
-</style>
-<header><div><h1>CCTV · 노트북 A</h1><p>독립 녹화 / 실시간 모니터 / 녹화 검색</p></div><div id="status" role="status">상태 확인 중…</div></header>
-<main><div class="grid" id="cameras"></div>
-<section><h2>녹화 검색·재생</h2><p>한국 시간으로 검색합니다. 현재 녹화 중인 구간은 최대 약 60초 뒤 검색에 반영됩니다. 보관 기간 7일.</p>
-<label>카메라 <select id="camera"></select></label><label>시작 <input type="datetime-local" id="start"></label><label>종료 <input type="datetime-local" id="end"></label><button id="search">검색</button>
-<div id="message" role="status"></div><div id="results"></div><video id="playback" controls playsinline></video><p><a id="download" hidden>선택 구간 MP4 저장</a></p></section>
-<p>카메라 연결을 끊으면 해당 채널만 재접속합니다. 같은 모델 USB 카메라는 기존 USB 포트를 유지하세요.</p></main>
-<script>
-const $=id=>document.getElementById(id);let loaded=false;
-function localValue(d){return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}
-$('start').value=localValue(new Date(Date.now()-3600000));$('end').value=localValue(new Date());
-async function status(){try{const r=await fetch('/api/status');if(!r.ok)throw Error('연결 실패');const s=await r.json();
-$('status').textContent=`여유 ${s.disk_free_gb} GB · ${s.fatal_error?'서비스 오류: '+s.fatal_error:s.disk_low?'저장공간 부족: 녹화 중지':'녹화 서비스 가동'} · ${new Date(s.time).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})}`;
-if(!loaded){for(const c of s.cameras){const article=document.createElement('article');const title=document.createElement('h2');title.textContent=`${c.id} · ${c.name}`;const f=document.createElement('iframe');f.title=c.name+' 실시간 영상';f.src=`http://127.0.0.1:8888/${c.id}/?muted=true&autoplay=true`;f.allow='autoplay; fullscreen';const state=document.createElement('span');state.id=c.id;state.className='state';article.append(title,f,state);$('cameras').append(article);const option=document.createElement('option');option.value=c.id;option.textContent=`${c.id} · ${c.name}`;$('camera').append(option)}loaded=true}
-for(const c of s.cameras){$(c.id).textContent=c.online?`● 실시간 연결 · ${c.recording?'최근 녹화 파일 확인됨':s.disk_low?'녹화 중지':'녹화 파일 확인 대기 (최대 약 60초)'} · 재시작 ${c.restarts}회`:'● 오프라인 · 재연결 대기';$(c.id).className='state '+(c.online?'ok':'bad')}
-}catch(e){$('status').textContent='서비스에 연결할 수 없습니다. 시작 스크립트를 확인하세요.'}}
-$('search').onclick=async()=>{try{const q=new URLSearchParams({camera:$('camera').value,start:new Date($('start').value).toISOString(),end:new Date($('end').value).toISOString()});const r=await fetch('/api/recordings?'+q);const rows=await r.json();if(!r.ok)throw Error(rows.error);$('results').replaceChildren();$('message').textContent=rows.length?`${rows.length}개 연속 녹화 구간. 버튼을 누르면 앞부분 최대 60분을 재생합니다.`:'해당 시간에 녹화가 없습니다.';for(const row of rows){const b=document.createElement('button');b.textContent=`${new Date(row.start).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})} · ${Math.round(row.duration)}초`;b.onclick=()=>{const url='/api/playback?'+new URLSearchParams({camera:$('camera').value,start:row.start,duration:Math.min(row.duration,3600)});$('playback').src=url;$('playback').play().catch(()=>{});$('download').href=url;$('download').download='recording.mp4';$('download').hidden=false};$('results').append(b)}}catch(e){$('message').textContent='검색 실패: '+e.message}};
-status();setInterval(status,4000);
-</script></html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#eef2f6" />
+    <title>CCTV 관제 화면 | 노트북 A</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232459d3'/%3E%3Crect x='6' y='9' width='20' height='14' rx='3' fill='none' stroke='white' stroke-width='2'/%3E%3Ccircle cx='16' cy='16' r='4' fill='none' stroke='white' stroke-width='2'/%3E%3C/svg%3E"
+    />
+    <style>
+      :root {
+        --canvas: #eef2f6;
+        --panel: #fff;
+        --ink: #23364a;
+        --muted: #62758b;
+        --line: #dce3eb;
+        --blue: #2459d3;
+        --blue-soft: #eaf0ff;
+        --red: #bc3c3a;
+        --amber: #916222;
+        --radius: 12px;
+        --font: "Segoe UI", "Malgun Gothic", "맑은 고딕", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 96px;
+      }
+      body {
+        margin: 0;
+        background: var(--canvas);
+        color: var(--ink);
+        font: 14px/1.55 var(--font);
+      }
+      button,
+      input,
+      select {
+        font: inherit;
+      }
+      button,
+      a,
+      input,
+      select {
+        touch-action: manipulation;
+      }
+      button {
+        cursor: pointer;
+        color: inherit;
+      }
+      button:disabled {
+        cursor: wait;
+        opacity: 0.6;
+      }
+      button,
+      a {
+        -webkit-tap-highlight-color: transparent;
+      }
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible {
+        outline: 3px solid #648cf0;
+        outline-offset: 3px;
+      }
+      svg {
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.7;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        flex-shrink: 0;
+      }
+      [hidden] {
+        display: none !important;
+      }
+      h1,
+      h2,
+      p {
+        margin: 0;
+      }
+      a {
+        color: var(--blue);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      .icon-defs {
+        display: none;
+      }
+      .numeral {
+        font-family: Bahnschrift, "Segoe UI", sans-serif;
+        font-variant-numeric: tabular-nums;
+      }
+      .rail {
+        position: fixed;
+        inset: 0 auto 0 0;
+        width: 80px;
+        background: var(--panel);
+        border-right: 1px solid var(--line);
+        z-index: 30;
+        display: flex;
+        align-items: center;
+        flex-direction: column;
+        padding: 22px 8px 16px;
+        gap: 26px;
+      }
+      .brand-mark {
+        display: grid;
+        place-items: center;
+        width: 42px;
+        height: 42px;
+        border-radius: 12px;
+        background: var(--blue);
+        color: #fff;
+      }
+      .brand-mark svg {
+        width: 25px;
+        height: 25px;
+      }
+      .rail nav {
+        display: grid;
+        gap: 10px;
+        width: 100%;
+      }
+      .rail-link {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+        gap: 5px;
+        min-height: 66px;
+        border: 0;
+        border-radius: 9px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+      .rail-link:hover {
+        background: #f4f6fa;
+        text-decoration: none;
+      }
+      .rail-link.active {
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+      .rail-link svg {
+        width: 23px;
+        height: 23px;
+      }
+      .rail-bottom {
+        margin-top: auto;
+        width: 100%;
+      }
+      .topbar {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        height: 76px;
+        margin-left: 80px;
+        padding: 0 36px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+      }
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+      .brand strong {
+        font-size: 19px;
+        letter-spacing: -0.5px;
+      }
+      .brand-separator {
+        width: 1px;
+        height: 19px;
+        background: var(--line);
+      }
+      .site-name {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .top-right {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+      }
+      .connection {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .dot {
+        width: 7px;
+        height: 7px;
+        display: inline-block;
+        border-radius: 50%;
+        background: currentColor;
+        flex-shrink: 0;
+      }
+      .connection.healthy {
+        color: var(--blue);
+      }
+      .connection.error {
+        color: var(--red);
+      }
+      .clock-block {
+        border-left: 1px solid var(--line);
+        padding-left: 22px;
+        text-align: right;
+      }
+      .clock {
+        font-size: 21px;
+        line-height: 1.1;
+        letter-spacing: 0.5px;
+      }
+      .date {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 5px;
+      }
+      main {
+        max-width: 1740px;
+        margin-left: 80px;
+        padding: 30px 36px 20px;
+      }
+      .section-heading {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 18px;
+        margin-bottom: 20px;
+      }
+      .section-heading h1 {
+        font-size: 27px;
+        font-weight: 650;
+        letter-spacing: -1px;
+        line-height: 1.3;
+      }
+      .section-heading p {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .view-switch {
+        display: flex;
+        gap: 3px;
+        background: #e2e8f0;
+        padding: 4px;
+        border-radius: 8px;
+        flex-shrink: 0;
+      }
+      .view-switch button {
+        display: flex;
+        gap: 7px;
+        align-items: center;
+        border: 0;
+        background: transparent;
+        padding: 8px 11px;
+        border-radius: 5px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .view-switch button svg {
+        width: 16px;
+        height: 16px;
+      }
+      .view-switch button[aria-pressed="true"] {
+        color: var(--ink);
+        background: #fff;
+        box-shadow: 0 1px 3px #23364a12;
+      }
+      .monitor-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+        gap: 16px;
+        align-items: stretch;
+      }
+      .camera-card {
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        overflow: hidden;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+      }
+      .camera-card.featured {
+        grid-column: 1;
+        grid-row: 1 / span 2;
+      }
+      .camera-card:not(.featured) {
+        grid-column: 2;
+      }
+      .camera-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 10px;
+        min-height: 47px;
+        padding: 9px 14px;
+      }
+      .camera-heading {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        min-width: 0;
+      }
+      .camera-id {
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.4px;
+        padding: 2px 6px;
+        color: var(--muted);
+        background: #f0f3f7;
+        border-radius: 4px;
+        white-space: nowrap;
+      }
+      .camera-header h2 {
+        font-size: 13px;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .camera-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .live-label {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        color: var(--blue);
+        font-size: 10px;
+        white-space: nowrap;
+      }
+      .live-label.offline {
+        color: var(--red);
+      }
+      .icon-button {
+        border: 0;
+        background: transparent;
+        padding: 5px;
+        display: grid;
+        place-items: center;
+        border-radius: 4px;
+        color: var(--muted);
+        min-width: 30px;
+        min-height: 30px;
+      }
+      .icon-button:hover {
+        background: #eef2f8;
+        color: var(--blue);
+      }
+      .icon-button svg {
+        width: 16px;
+        height: 16px;
+      }
+      .camera-screen {
+        background: #17212b;
+        position: relative;
+        aspect-ratio: 16/9;
+        width: 100%;
+        overflow: hidden;
+      }
+      .camera-screen iframe {
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+        position: absolute;
+        inset: 0;
+      }
+      .featured .camera-screen {
+        flex: 1;
+        aspect-ratio: auto;
+        min-height: 290px;
+      }
+      .screen-label {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        padding: 4px 8px;
+        background: #17212bce;
+        color: white;
+        border: 1px solid #ffffff25;
+        border-radius: 4px;
+        font-size: 10px;
+        z-index: 1;
+        pointer-events: none;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .screen-label .dot {
+        width: 5px;
+        height: 5px;
+        background: #bdd2ff;
+      }
+      .camera-footer {
+        min-height: 35px;
+        padding: 8px 14px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .record-state {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+      .record-state svg {
+        width: 12px;
+        height: 12px;
+      }
+      .record-state.warning {
+        color: var(--amber);
+      }
+      .record-state.error {
+        color: var(--red);
+      }
+      .camera-meta {
+        white-space: nowrap;
+        color: #718298;
+      }
+      .camera-card:fullscreen {
+        border: 0;
+        border-radius: 0;
+        background: #17212b;
+      }
+      .camera-card:fullscreen .camera-screen {
+        flex: 1;
+        aspect-ratio: auto;
+      }
+      .camera-card:fullscreen .camera-header,
+      .camera-card:fullscreen .camera-footer {
+        background: #fff;
+      }
+      .monitor-grid.equal {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .monitor-grid.equal .camera-card {
+        grid-column: auto;
+        grid-row: auto;
+      }
+      .monitor-grid.equal .camera-screen {
+        aspect-ratio: 16/9;
+        min-height: 0;
+        flex: auto;
+      }
+      .system-strip {
+        display: flex;
+        align-items: center;
+        gap: 28px;
+        flex-wrap: wrap;
+        margin: 16px 0 34px;
+        padding: 13px 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #f7f9fc;
+        font-size: 12px;
+      }
+      .strip-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .strip-item svg {
+        color: var(--muted);
+        width: 16px;
+        height: 16px;
+      }
+      .strip-item .label {
+        color: var(--muted);
+      }
+      .strip-item strong {
+        font-weight: 600;
+      }
+      .strip-note {
+        margin-left: auto;
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .service-warning {
+        margin-bottom: 16px;
+        padding: 12px 16px;
+        border: 1px solid #dfb5ad;
+        border-radius: 8px;
+        background: #fff5f1;
+        color: #943730;
+        font-size: 13px;
+      }
+      .archive {
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: #fff;
+        overflow: hidden;
+      }
+      .archive-heading {
+        padding: 23px 24px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+      .archive-heading h2 {
+        font-size: 19px;
+        letter-spacing: -0.6px;
+        font-weight: 650;
+      }
+      .archive-heading p {
+        color: var(--muted);
+        font-size: 12px;
+        margin-top: 4px;
+      }
+      .subtle-tag {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+      .subtle-tag svg {
+        width: 15px;
+        height: 15px;
+      }
+      .search-form {
+        display: flex;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 20px 24px;
+        background: #fafbfd;
+        border-bottom: 1px solid var(--line);
+      }
+      .field {
+        display: grid;
+        gap: 6px;
+        flex: 1;
+        min-width: 170px;
+      }
+      .field:first-child {
+        flex: 0.9;
+      }
+      .field label {
+        font-size: 11px;
+        color: var(--muted);
+        font-weight: 600;
+      }
+      .field input,
+      .field select {
+        width: 100%;
+        min-height: 41px;
+        padding: 8px 11px;
+        border: 1px solid #cad4e0;
+        border-radius: 6px;
+        color: var(--ink);
+        background: #fff;
+        min-width: 0;
+        font-size: 12px;
+        color-scheme: light;
+      }
+      .field input:hover,
+      .field select:hover {
+        border-color: #a4b4c9;
+      }
+      .primary-button {
+        border: 1px solid var(--blue);
+        background: var(--blue);
+        color: #fff;
+        min-height: 41px;
+        padding: 9px 20px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+      }
+      .primary-button:hover {
+        background: #1a48b4;
+      }
+      .primary-button svg {
+        width: 16px;
+        height: 16px;
+      }
+      .archive-body {
+        display: grid;
+        grid-template-columns: minmax(270px, 0.85fr) minmax(0, 1.65fr);
+        min-height: 300px;
+      }
+      .recording-list {
+        padding: 20px 18px;
+        border-right: 1px solid var(--line);
+        max-height: 450px;
+        overflow: auto;
+      }
+      .list-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 12px;
+        margin-bottom: 14px;
+      }
+      .list-heading span {
+        font-size: 11px;
+        color: var(--muted);
+      }
+      .list-message {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.75;
+      }
+      .empty-list {
+        padding: 25px 12px;
+        text-align: center;
+        color: var(--muted);
+      }
+      .empty-list svg {
+        width: 28px;
+        height: 28px;
+        stroke-width: 1.2;
+        margin-bottom: 9px;
+        color: #9babbe;
+      }
+      .empty-list strong {
+        display: block;
+        font-size: 12px;
+        color: var(--ink);
+        font-weight: 600;
+        margin-bottom: 5px;
+      }
+      .empty-list p {
+        font-size: 11px;
+      }
+      .result-item {
+        width: 100%;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        background: white;
+        text-align: left;
+        padding: 12px;
+        margin-top: 8px;
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+      .result-item:hover {
+        border-color: #8facf0;
+        background: #f8faff;
+      }
+      .result-item[aria-pressed="true"] {
+        border-color: var(--blue);
+        background: var(--blue-soft);
+      }
+      .result-item .play-icon {
+        width: 31px;
+        height: 31px;
+        display: grid;
+        place-items: center;
+        background: #eef2f8;
+        color: var(--blue);
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+      .result-item .play-icon svg {
+        width: 14px;
+        height: 14px;
+      }
+      .result-item strong {
+        display: block;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .result-item small {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+      .result-duration {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+      .playback-panel {
+        padding: 20px 24px;
+        min-width: 0;
+      }
+      .playback-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        font-size: 12px;
+        margin-bottom: 13px;
+      }
+      .playback-heading strong {
+        font-weight: 600;
+      }
+      .playback-placeholder {
+        min-height: 204px;
+        background: #f3f6fa;
+        border: 1px dashed #cdd7e3;
+        border-radius: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        padding: 28px;
+      }
+      .playback-placeholder svg {
+        width: 33px;
+        height: 33px;
+        stroke-width: 1.25;
+        color: #92a4ba;
+        margin-bottom: 10px;
+      }
+      .playback-placeholder p {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .playback-placeholder small {
+        display: block;
+        margin-top: 5px;
+        font-size: 11px;
+        color: #7d8da0;
+      }
+      #playback {
+        width: 100%;
+        max-height: 380px;
+        display: block;
+        background: #17212b;
+        border-radius: 5px;
+      }
+      .download {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .download svg {
+        width: 14px;
+        height: 14px;
+      }
+      .archive-note {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 11px;
+      }
+      .page-footer {
+        display: flex;
+        justify-content: space-between;
+        gap: 15px;
+        padding: 20px 0 0;
+        color: #718298;
+        font-size: 11px;
+      }
+      .page-footer span {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .page-footer svg {
+        width: 13px;
+        height: 13px;
+      }
+      dialog {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 26px;
+        max-width: 470px;
+        width: calc(100% - 32px);
+        color: var(--ink);
+        box-shadow: 0 24px 80px #23364a30;
+      }
+      dialog::backdrop {
+        background: #172b4566;
+      }
+      dialog h2 {
+        font-size: 20px;
+        margin-bottom: 8px;
+      }
+      dialog p {
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.8;
+        margin-bottom: 16px;
+      }
+      .dialog-heading {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+      }
+      .system-details {
+        margin: 0;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        padding: 16px 0;
+        border-top: 1px solid var(--line);
+      }
+      .system-details dt {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .system-details dd {
+        margin: 0;
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .dialog-note {
+        background: #f2f5fa;
+        border-radius: 6px;
+        padding: 12px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      @media (min-width: 821px) {
+        .monitor-grid:not(.equal) {
+          height: clamp(350px, calc(100vh - 300px), 660px);
+          grid-template-rows: repeat(2, minmax(0, 1fr));
+        }
+        .monitor-grid:not(.equal) .camera-screen {
+          flex: 1;
+          min-height: 0;
+          aspect-ratio: auto;
+        }
+      }
+      @media (min-width: 1820px) {
+        main {
+          margin-right: auto;
+          margin-left: max(80px, calc((100vw - 1660px) / 2));
+        }
+      }
+      @media (max-width: 1100px) {
+        .topbar {
+          padding: 0 24px;
+        }
+        main {
+          padding: 26px 24px 20px;
+        }
+        .monitor-grid {
+          gap: 12px;
+        }
+        .camera-header {
+          padding: 8px 10px;
+        }
+        .camera-heading {
+          gap: 6px;
+        }
+        .camera-id {
+          font-size: 9px;
+        }
+        .camera-meta {
+          display: none;
+        }
+        .camera-header h2 {
+          font-size: 12px;
+        }
+        .system-strip {
+          gap: 18px;
+        }
+        .strip-note {
+          display: none;
+        }
+        .search-form {
+          gap: 10px;
+        }
+        .field {
+          min-width: 145px;
+        }
+        .archive-body {
+          grid-template-columns: 1fr 1.4fr;
+        }
+      }
+      @media (max-width: 820px) {
+        .rail {
+          width: 65px;
+          padding-inline: 5px;
+        }
+        .rail-link {
+          font-size: 10px;
+        }
+        .brand-mark {
+          width: 38px;
+          height: 38px;
+        }
+        .topbar {
+          margin-left: 65px;
+          padding: 0 18px;
+          height: 68px;
+        }
+        .brand strong {
+          font-size: 17px;
+        }
+        .brand-separator,
+        .site-name,
+        .connection {
+          display: none;
+        }
+        .clock-block {
+          border: 0;
+          padding: 0;
+        }
+        .clock {
+          font-size: 19px;
+        }
+        .top-right {
+          gap: 0;
+        }
+        main {
+          margin-left: 65px;
+          padding: 24px 18px 18px;
+        }
+        .section-heading h1 {
+          font-size: 24px;
+        }
+        .section-heading p {
+          font-size: 12px;
+          max-width: 34ch;
+        }
+        .view-switch button {
+          padding: 8px;
+        }
+        .view-switch .view-text {
+          display: none;
+        }
+        .monitor-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+        .camera-card.featured {
+          grid-column: 1/-1;
+          grid-row: auto;
+        }
+        .camera-card:not(.featured) {
+          grid-column: auto;
+        }
+        .featured .camera-screen {
+          aspect-ratio: 16/9;
+          min-height: 0;
+          flex: auto;
+        }
+        .monitor-grid.equal {
+          grid-template-columns: 1fr;
+        }
+        .monitor-grid.equal .camera-card {
+          grid-column: 1;
+        }
+        .system-strip {
+          column-gap: 22px;
+          row-gap: 10px;
+          margin-bottom: 26px;
+          padding: 12px;
+        }
+        .archive-heading,
+        .search-form {
+          padding: 18px;
+        }
+        .subtle-tag {
+          display: none;
+        }
+        .archive-body {
+          grid-template-columns: 1fr;
+        }
+        .recording-list {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+          max-height: 230px;
+        }
+        .playback-panel {
+          padding: 18px;
+        }
+        .empty-list {
+          padding: 12px;
+        }
+        .empty-list svg {
+          display: none;
+        }
+        .page-footer {
+          font-size: 10px;
+          flex-direction: column;
+          gap: 5px;
+        }
+      }
+      @media (max-width: 480px) {
+        .rail {
+          width: 55px;
+        }
+        .brand-mark {
+          width: 33px;
+          height: 33px;
+          border-radius: 9px;
+        }
+        .rail-link {
+          font-size: 9px;
+          min-height: 59px;
+        }
+        .rail-link svg {
+          width: 21px;
+        }
+        .topbar {
+          margin-left: 55px;
+          padding-inline: 13px;
+        }
+        .brand strong {
+          font-size: 15px;
+        }
+        .date {
+          font-size: 9px;
+        }
+        .clock {
+          font-size: 17px;
+        }
+        main {
+          margin-left: 55px;
+          padding: 21px 12px 16px;
+        }
+        .section-heading {
+          gap: 8px;
+        }
+        .section-heading h1 {
+          font-size: 21px;
+        }
+        .section-heading p {
+          font-size: 11px;
+        }
+        .monitor-grid {
+          grid-template-columns: 1fr;
+          gap: 12px;
+        }
+        .camera-card.featured {
+          grid-column: auto;
+        }
+        .camera-screen,
+        .featured .camera-screen {
+          aspect-ratio: 16/9;
+        }
+        .camera-footer {
+          padding-inline: 10px;
+        }
+        .camera-meta {
+          display: block;
+          font-size: 9px;
+        }
+        .system-strip {
+          font-size: 11px;
+          gap: 10px 16px;
+        }
+        .strip-item {
+          gap: 6px;
+        }
+        .strip-item svg {
+          display: none;
+        }
+        .archive-heading h2 {
+          font-size: 18px;
+        }
+        .archive-heading p {
+          font-size: 11px;
+        }
+        .field {
+          min-width: 100%;
+          flex: 1;
+        }
+        .primary-button {
+          width: 100%;
+        }
+        .playback-heading {
+          align-items: flex-start;
+        }
+        .playback-placeholder {
+          min-height: 160px;
+          padding: 18px;
+        }
+        .playback-placeholder p {
+          font-size: 11px;
+        }
+        .recording-list {
+          padding: 16px;
+        }
+        .screen-label {
+          font-size: 9px;
+          top: 8px;
+          left: 8px;
+        }
+        .page-footer span {
+          align-items: flex-start;
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="icon-defs" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <symbol id="i-camera" viewBox="0 0 24 24">
+          <rect x="3" y="6" width="18" height="13" rx="3" />
+          <circle cx="12" cy="12.5" r="3.5" />
+          <path d="M7 6l1-2h8l1 2" />
+        </symbol>
+        <symbol id="i-monitor" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="18" height="13" rx="2" />
+          <path d="M8 21h8m-4-4v4M3 13h18" />
+        </symbol>
+        <symbol id="i-history" viewBox="0 0 24 24">
+          <path d="M3 11a9 9 0 119 10M3 4v7h7m2-5v6l4 2" />
+        </symbol>
+        <symbol id="i-grid" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="5" height="16" rx="1" />
+          <rect x="10" y="4" width="5" height="16" rx="1" />
+          <rect x="17" y="4" width="4" height="16" rx="1" />
+        </symbol>
+        <symbol id="i-focus" viewBox="0 0 24 24">
+          <rect x="3" y="4" width="11" height="16" rx="1" />
+          <rect x="17" y="4" width="4" height="7" rx="1" />
+          <rect x="17" y="14" width="4" height="6" rx="1" />
+        </symbol>
+        <symbol id="i-expand" viewBox="0 0 24 24">
+          <path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5" />
+        </symbol>
+        <symbol id="i-search" viewBox="0 0 24 24">
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="M16 16l5 5" />
+        </symbol>
+        <symbol id="i-drive" viewBox="0 0 24 24">
+          <path
+            d="M5 4h14l3 10v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5L5 4zM2 14h20m-5 3h2m-5 0h.1"
+          />
+        </symbol>
+        <symbol id="i-record" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <circle cx="12" cy="12" r="4" />
+        </symbol>
+        <symbol id="i-play" viewBox="0 0 24 24">
+          <path d="M8 4l12 8-12 8z" />
+        </symbol>
+        <symbol id="i-download" viewBox="0 0 24 24">
+          <path d="M12 3v12m-5-5l5 5 5-5M4 16v5h16v-5" />
+        </symbol>
+        <symbol id="i-info" viewBox="0 0 24 24">
+          <circle cx="12" cy="12" r="9" />
+          <path d="M12 11v6m0-10h.01" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24">
+          <path d="M6 6l12 12M6 18L18 6" />
+        </symbol>
+        <symbol id="i-shield" viewBox="0 0 24 24">
+          <path d="M12 3l8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3zM8 12l3 3 5-6" />
+        </symbol>
+      </defs>
+    </svg>
+    <aside class="rail" aria-label="주 메뉴">
+      <a class="brand-mark" href="#monitor" aria-label="CCTV 관제 홈"
+        ><svg aria-hidden="true"><use href="#i-camera" /></svg
+      ></a>
+      <nav>
+        <a
+          class="rail-link active"
+          id="nav-monitor"
+          href="#monitor"
+          aria-current="location"
+          ><svg aria-hidden="true"><use href="#i-monitor" /></svg
+          ><span>실시간</span></a
+        ><a class="rail-link" id="nav-archive" href="#archive"
+          ><svg aria-hidden="true"><use href="#i-history" /></svg
+          ><span>녹화 검색</span></a
+        >
+      </nav>
+      <button class="rail-link rail-bottom" id="system-open" type="button">
+        <svg aria-hidden="true"><use href="#i-info" /></svg><span>시스템</span>
+      </button>
+    </aside>
+    <header class="topbar">
+      <div class="brand">
+        <strong>CCTV 관제</strong><span class="brand-separator"></span
+        ><span class="site-name">노트북 A</span>
+      </div>
+      <div class="top-right">
+        <div class="connection" id="connection" role="status">
+          <span class="dot"></span
+          ><span id="connection-text">연결 확인 중</span>
+        </div>
+        <div class="clock-block">
+          <div class="clock numeral" id="clock">--:--:--</div>
+          <div class="date" id="date">한국 표준시</div>
+        </div>
+      </div>
+    </header>
+    <main>
+      <section id="monitor" aria-labelledby="monitor-title">
+        <div class="section-heading">
+          <div>
+            <h1 id="monitor-title">실시간 모니터</h1>
+            <p>카메라 영상을 확인하고 필요한 구간을 찾아보세요.</p>
+          </div>
+          <div class="view-switch" role="group" aria-label="영상 배치">
+            <button
+              id="focus-view"
+              type="button"
+              aria-pressed="true"
+              title="선택 카메라 크게 보기"
+            >
+              <svg aria-hidden="true"><use href="#i-focus" /></svg
+              ><span class="view-text">집중 보기</span></button
+            ><button
+              id="equal-view"
+              type="button"
+              aria-pressed="false"
+              title="모든 카메라 같은 크기로 보기"
+            >
+              <svg aria-hidden="true"><use href="#i-grid" /></svg
+              ><span class="view-text">전체 보기</span>
+            </button>
+          </div>
+        </div>
+        <div
+          id="service-warning"
+          class="service-warning"
+          role="alert"
+          hidden
+        ></div>
+        <div class="monitor-grid" id="cameras" aria-label="실시간 카메라">
+          <p class="list-message" id="loading">
+            카메라 상태를 불러오고 있습니다.
+          </p>
+        </div>
+        <div class="system-strip" aria-label="녹화 시스템 상태">
+          <div class="strip-item">
+            <svg aria-hidden="true"><use href="#i-camera" /></svg
+            ><span class="label">연결</span><strong id="online-count">—</strong>
+          </div>
+          <div class="strip-item">
+            <svg aria-hidden="true"><use href="#i-record" /></svg
+            ><span class="label">녹화 확인</span
+            ><strong id="recording-count">—</strong>
+          </div>
+          <div class="strip-item">
+            <svg aria-hidden="true"><use href="#i-drive" /></svg
+            ><span class="label">저장공간 여유</span
+            ><strong><span class="numeral" id="disk-free">—</span> GB</strong>
+          </div>
+          <span class="strip-note" id="retention-note"
+            >노트북 A에 독립 저장</span
+          >
+        </div>
+      </section>
+      <section class="archive" id="archive" aria-labelledby="archive-title">
+        <div class="archive-heading">
+          <div>
+            <h2 id="archive-title">녹화 영상 찾기</h2>
+            <p>카메라와 시간을 선택해 지난 영상을 확인하세요.</p>
+          </div>
+          <span class="subtle-tag"
+            ><svg aria-hidden="true"><use href="#i-history" /></svg>한국 시간
+            기준</span
+          >
+        </div>
+        <form class="search-form" id="search-form">
+          <div class="field">
+            <label for="camera">카메라</label
+            ><select id="camera" required>
+              <option value="" disabled selected>연결 확인 중</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="start">시작 시간</label
+            ><input type="datetime-local" id="start" required />
+          </div>
+          <div class="field">
+            <label for="end">종료 시간</label
+            ><input type="datetime-local" id="end" required />
+          </div>
+          <button class="primary-button" id="search" type="submit">
+            <svg aria-hidden="true"><use href="#i-search" /></svg
+            ><span id="search-label">영상 검색</span>
+          </button>
+        </form>
+        <div class="archive-body">
+          <div class="recording-list">
+            <div class="list-heading">
+              <strong>검색 결과</strong
+              ><span id="result-count">시간을 선택하세요</span>
+            </div>
+            <div id="message" class="list-message" role="status"></div>
+            <div id="results">
+              <div class="empty-list">
+                <svg aria-hidden="true"><use href="#i-search" /></svg
+                ><strong>찾고 싶은 순간이 있나요?</strong>
+                <p>시간 범위를 정하고 영상을 검색하세요.</p>
+              </div>
+            </div>
+          </div>
+          <div class="playback-panel">
+            <div class="playback-heading">
+              <strong id="playback-title">녹화 영상 재생</strong
+              ><a class="download" id="download" hidden
+                ><svg aria-hidden="true"><use href="#i-download" /></svg>MP4
+                저장</a
+              >
+            </div>
+            <div class="playback-placeholder" id="playback-placeholder">
+              <div>
+                <svg aria-hidden="true"><use href="#i-play" /></svg>
+                <p>선택한 영상이 이곳에 재생됩니다.</p>
+                <small>왼쪽 검색 결과에서 구간을 선택하세요.</small>
+              </div>
+            </div>
+            <video id="playback" controls playsinline hidden></video>
+            <p class="archive-note" id="playback-note">
+              최근 녹화는 검색에 반영되기까지 약 60초가 걸릴 수 있습니다.
+            </p>
+          </div>
+        </div>
+      </section>
+      <footer class="page-footer">
+        <span
+          ><svg aria-hidden="true"><use href="#i-shield" /></svg>다른 서버와
+          연결되지 않아도 이 노트북에서 녹화합니다.</span
+        ><span>같은 모델의 USB 카메라는 기존 포트를 유지하세요.</span>
+      </footer>
+    </main>
+    <dialog id="system-dialog" aria-labelledby="system-title">
+      <div class="dialog-heading">
+        <h2 id="system-title">녹화 시스템</h2>
+        <button
+          class="icon-button"
+          id="system-close"
+          type="button"
+          aria-label="시스템 정보 닫기"
+        >
+          <svg aria-hidden="true"><use href="#i-close" /></svg>
+        </button>
+      </div>
+      <p>
+        현재 노트북에서 카메라 영상을 받아 저장합니다. 창을 닫아도 녹화 서비스는
+        계속 실행됩니다.
+      </p>
+      <dl class="system-details">
+        <dt>서비스</dt>
+        <dd id="detail-status">확인 중</dd>
+        <dt>실행 시작</dt>
+        <dd id="detail-started">—</dd>
+        <dt>보관 기간</dt>
+        <dd id="detail-retention">—</dd>
+        <dt>저장공간 여유</dt>
+        <dd id="detail-disk">—</dd>
+        <dt>시작 후 재접속</dt>
+        <dd id="detail-restarts">—</dd>
+      </dl>
+      <div class="dialog-note">
+        녹화 확인은 최근 파일 갱신을 기준으로 합니다. 저장공간이 10GiB 미만이면
+        캡처를 중지합니다.
+      </div>
+    </dialog>
+    <script>
+      const $ = (id) => document.getElementById(id),
+        cameras = new Map();
+      let selectedCamera = null,
+        searchSequence = 0;
+      const koreaDate = new Intl.DateTimeFormat("ko-KR", {
+          timeZone: "Asia/Seoul",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit",
+        }),
+        koreaTime = new Intl.DateTimeFormat("ko-KR", {
+          timeZone: "Asia/Seoul",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        });
+      function icon(name) {
+        const svg = document.createElementNS(
+          "http://www.w3.org/2000/svg",
+          "svg",
+        );
+        svg.setAttribute("aria-hidden", "true");
+        const use = document.createElementNS(svg.namespaceURI, "use");
+        use.setAttribute("href", "#i-" + name);
+        svg.append(use);
+        return svg;
+      }
+      function element(tag, className, text) {
+        const el = document.createElement(tag);
+        if (className) el.className = className;
+        if (text !== undefined) el.textContent = text;
+        return el;
+      }
+      function fieldTime(date) {
+        return new Date(date.getTime() + 9 * 3600000)
+          .toISOString()
+          .slice(0, 16);
+      }
+      function utcField(id) {
+        const value = $(id).value;
+        if (!value) throw Error("시작 시간과 종료 시간을 선택하세요.");
+        return new Date(value + ":00+09:00").toISOString();
+      }
+      function tick() {
+        const now = new Date();
+        $("clock").textContent = koreaTime.format(now);
+        $("date").textContent = koreaDate.format(now) + " 한국 시간";
+      }
+      function focusCamera(id) {
+        selectedCamera = id;
+        for (const [key, v] of cameras) {
+          v.card.classList.toggle("featured", key === id);
+          v.focus.setAttribute("aria-pressed", String(key === id));
+          v.focus.title =
+            key === id ? "집중 보기로 전환" : "이 카메라 크게 보기";
+        }
+      }
+      function setView(equal) {
+        $("cameras").classList.toggle("equal", equal);
+        $("equal-view").setAttribute("aria-pressed", String(equal));
+        $("focus-view").setAttribute("aria-pressed", String(!equal));
+      }
+      function addCamera(c) {
+        const card = element("article", "camera-card");
+        card.id = "view-" + c.id;
+        const header = element("div", "camera-header"),
+          heading = element("div", "camera-heading");
+        heading.append(
+          element("span", "camera-id", c.id),
+          element("h2", "", c.name),
+        );
+        const actions = element("div", "camera-actions"),
+          live = element("span", "live-label");
+        live.append(element("span", "dot"), element("span", "", "확인 중"));
+        const focus = element("button", "icon-button");
+        focus.type = "button";
+        focus.setAttribute("aria-label", c.name + " 크게 보기");
+        focus.append(icon("focus"));
+        focus.onclick = () => {
+          focusCamera(c.id);
+          setView(false);
+        };
+        const expand = element("button", "icon-button");
+        expand.type = "button";
+        expand.setAttribute("aria-label", c.name + " 전체 화면");
+        expand.title = "전체 화면";
+        expand.append(icon("expand"));
+        expand.onclick = async () => {
+          try {
+            if (document.fullscreenElement) await document.exitFullscreen();
+            else await card.requestFullscreen();
+          } catch (e) {
+            showWarning(
+              "전체 화면을 열 수 없습니다. 브라우저의 전체 화면 권한을 확인하세요.",
+            );
+          }
+        };
+        actions.append(live, focus, expand);
+        header.append(heading, actions);
+        const screen = element("div", "camera-screen"),
+          frame = document.createElement("iframe");
+        frame.title = c.name + " 실시간 영상";
+        frame.src = `http://127.0.0.1:8888/${encodeURIComponent(c.id)}/?muted=true&autoplay=true`;
+        frame.allow = "autoplay; fullscreen";
+        const label = element("span", "screen-label");
+        label.append(element("span", "dot"), element("span", "", c.name));
+        screen.append(frame, label);
+        const footer = element("div", "camera-footer"),
+          state = element("span", "record-state"),
+          stateText = element("span", "", "상태 확인 중");
+        state.append(icon("record"), stateText);
+        const meta = element("span", "camera-meta", "재접속 0회");
+        footer.append(state, meta);
+        card.append(header, screen, footer);
+        $("cameras").append(card);
+        cameras.set(c.id, { card, focus, live, state, stateText, meta });
+        const option = document.createElement("option");
+        option.value = c.id;
+        option.textContent = c.name + " (" + c.id + ")";
+        $("camera").append(option);
+      }
+      function showWarning(message) {
+        $("service-warning").textContent = message;
+        $("service-warning").hidden = false;
+      }
+      function disconnected() {
+        $("connection").className = "connection error";
+        $("connection-text").textContent = "상태 연결 끊김";
+        showWarning(
+          "녹화 서비스 상태를 확인할 수 없습니다. 시작 스크립트를 실행하거나 서비스 상태를 확인하세요.",
+        );
+        for (const v of cameras.values()) {
+          v.live.className = "live-label offline";
+          v.live.lastChild.textContent = "확인 불가";
+          v.state.className = "record-state warning";
+          v.stateText.textContent = "녹화 상태 확인 불가";
+        }
+        $("online-count").textContent = "확인 불가";
+        $("recording-count").textContent = "확인 불가";
+        $("disk-free").textContent = "—";
+        $("detail-status").textContent = "연결 확인 필요";
+      }
+      async function updateStatus() {
+        try {
+          const r = await fetch("/api/status", {
+            signal: AbortSignal.timeout(6000),
+          });
+          if (!r.ok) throw Error();
+          const s = await r.json();
+          if (!cameras.size) {
+            $("loading")?.remove();
+            $("camera").replaceChildren();
+            for (const c of s.cameras) addCamera(c);
+            focusCamera(s.cameras[0]?.id);
+          }
+          for (const c of s.cameras) {
+            const v = cameras.get(c.id);
+            if (!v) continue;
+            v.live.className = "live-label" + (c.online ? "" : " offline");
+            v.live.lastChild.textContent = c.online ? "실시간" : "오프라인";
+            v.stateText.textContent = !c.online
+              ? "카메라 재연결 대기"
+              : s.disk_low
+                ? "저장공간 부족으로 녹화 중지"
+                : c.recording
+                  ? "최근 녹화 파일 확인됨"
+                  : "녹화 파일 확인 대기";
+            v.state.className =
+              "record-state" +
+              (!c.online ? " error" : !c.recording ? " warning" : "");
+            v.meta.textContent = "재접속 " + c.restarts + "회";
+          }
+          const online = s.cameras.filter((c) => c.online).length,
+            recording = s.cameras.filter((c) => c.recording).length;
+          $("online-count").textContent =
+            online + " / " + s.cameras.length + "대";
+          $("recording-count").textContent = recording + "개 채널";
+          $("disk-free").textContent = Number(s.disk_free_gb).toLocaleString(
+            "ko-KR",
+            { maximumFractionDigits: 1 },
+          );
+          $("retention-note").textContent =
+            "노트북 A에 저장 · " + s.retention_days + "일 보관";
+          const healthy =
+            !s.fatal_error &&
+            !s.disk_low &&
+            online === s.cameras.length &&
+            online > 0;
+          $("connection").className =
+            "connection " + (healthy ? "healthy" : "error");
+          $("connection-text").textContent = healthy
+            ? "시스템 연결됨"
+            : "상태 확인 필요";
+          $("service-warning").hidden = true;
+          if (s.fatal_error)
+            showWarning(
+              "녹화 서비스에 오류가 발생했습니다. 서비스를 다시 시작하세요.",
+            );
+          else if (s.disk_low)
+            showWarning(
+              "저장공간이 부족해 녹화를 중지했습니다. 보존 자료를 확인하고 여유 공간을 확보하세요.",
+            );
+          $("detail-status").textContent = s.fatal_error
+            ? "서비스 오류"
+            : s.disk_low
+              ? "저장공간 부족"
+              : online + "개 카메라 연결";
+          $("detail-started").textContent =
+            koreaDate.format(new Date(s.started)) +
+            " " +
+            koreaTime.format(new Date(s.started));
+          $("detail-retention").textContent = s.retention_days + "일";
+          $("detail-disk").textContent = s.disk_free_gb + " GB";
+          $("detail-restarts").textContent =
+            s.cameras.reduce((n, c) => n + c.restarts, 0) + "회";
+        } catch (e) {
+          disconnected();
+        }
+      }
+      function clearPlayback() {
+        $("playback").pause();
+        $("playback").removeAttribute("src");
+        $("playback").load();
+        $("playback").hidden = true;
+        $("playback-placeholder").hidden = false;
+        $("download").hidden = true;
+        $("playback-title").textContent = "녹화 영상 재생";
+        $("playback-note").textContent =
+          "최근 녹화는 검색에 반영되기까지 약 60초가 걸릴 수 있습니다.";
+      }
+      function emptyResults(title, description) {
+        const box = element("div", "empty-list");
+        box.append(
+          icon("history"),
+          element("strong", "", title),
+          element("p", "", description),
+        );
+        $("results").replaceChildren(box);
+      }
+      function readableDuration(seconds) {
+        const total = Math.round(seconds),
+          minutes = Math.floor(total / 60),
+          remainder = total % 60;
+        return minutes
+          ? minutes + "분" + (remainder ? " " + remainder + "초" : "")
+          : remainder + "초";
+      }
+      $("search-form").onsubmit = async (event) => {
+        event.preventDefault();
+        const sequence = ++searchSequence,
+          selected = $("camera").value;
+        let start, end;
+        try {
+          start = utcField("start");
+          end = utcField("end");
+          if (start >= end)
+            throw Error("종료 시간을 시작 시간보다 늦게 선택하세요.");
+          if (!selected) throw Error("카메라 연결을 확인한 뒤 선택하세요.");
+        } catch (e) {
+          $("message").textContent = e.message;
+          return;
+        }
+        $("search").disabled = true;
+        $("search-label").textContent = "검색 중";
+        $("message").textContent = "녹화 구간을 확인하고 있습니다.";
+        $("result-count").textContent = "검색 중";
+        $("results").replaceChildren();
+        clearPlayback();
+        try {
+          const q = new URLSearchParams({ camera: selected, start, end }),
+            r = await fetch("/api/recordings?" + q, {
+              signal: AbortSignal.timeout(35000),
+            }),
+            rows = r.status === 404 ? [] : await r.json();
+          if (sequence !== searchSequence) return;
+          if (!r.ok && r.status !== 404) throw Error();
+          $("message").textContent = "";
+          $("result-count").textContent = rows.length + "개 구간";
+          if (!rows.length) {
+            emptyResults(
+              "이 시간에는 녹화가 없습니다.",
+              "다른 시간이나 카메라를 선택해 보세요.",
+            );
+            return;
+          }
+          for (const row of rows) {
+            const button = element("button", "result-item");
+            button.type = "button";
+            button.setAttribute("aria-pressed", "false");
+            const play = element("span", "play-icon");
+            play.append(icon("play"));
+            const info = element("span", "");
+            info.append(
+              element(
+                "strong",
+                "numeral",
+                koreaTime.format(new Date(row.start)),
+              ),
+              element("small", "", koreaDate.format(new Date(row.start))),
+            );
+            button.append(
+              play,
+              info,
+              element(
+                "span",
+                "result-duration",
+                readableDuration(row.duration),
+              ),
+            );
+            button.onclick = () => {
+              for (const b of $("results").querySelectorAll("button"))
+                b.setAttribute("aria-pressed", String(b === button));
+              const url =
+                "/api/playback?" +
+                new URLSearchParams({
+                  camera: selected,
+                  start: row.start,
+                  duration: Math.min(row.duration, 3600),
+                });
+              $("playback-placeholder").hidden = true;
+              $("playback").hidden = false;
+              $("playback").src = url;
+              $("playback")
+                .play()
+                .catch(() => {});
+              $("playback-title").textContent =
+                selected + " / " + koreaTime.format(new Date(row.start));
+              $("download").href = url;
+              $("download").download = selected + "-recording.mp4";
+              $("download").hidden = false;
+              $("playback-note").textContent =
+                row.duration > 3600
+                  ? "선택 구간의 앞 60분을 재생합니다. 다음 시간으로 검색하면 이후 영상을 확인할 수 있습니다."
+                  : "선택 구간을 재생합니다. MP4 파일로 저장할 수 있습니다.";
+            };
+            $("results").append(button);
+          }
+        } catch (e) {
+          if (sequence !== searchSequence) return;
+          $("result-count").textContent = "검색 실패";
+          $("message").textContent =
+            "녹화 구간을 불러오지 못했습니다. 서비스 연결을 확인한 뒤 다시 검색하세요.";
+          emptyResults(
+            "검색을 완료하지 못했습니다.",
+            "위의 영상 검색 버튼으로 다시 시도하세요.",
+          );
+        } finally {
+          if (sequence === searchSequence) {
+            $("search").disabled = false;
+            $("search-label").textContent = "영상 검색";
+          }
+        }
+      };
+      $("playback").addEventListener("error", () => {
+        if ($("playback").hasAttribute("src"))
+          $("playback-note").textContent =
+            "영상을 재생할 수 없습니다. 구간을 다시 선택하거나 다른 시간으로 검색하세요.";
+      });
+      $("focus-view").onclick = () => setView(false);
+      $("equal-view").onclick = () => setView(true);
+      $("system-open").onclick = () => $("system-dialog").showModal();
+      $("system-close").onclick = () => $("system-dialog").close();
+      $("system-dialog").addEventListener("click", (event) => {
+        if (event.target === $("system-dialog")) {
+          const r = event.target.getBoundingClientRect();
+          if (
+            event.clientX < r.left ||
+            event.clientX > r.right ||
+            event.clientY < r.top ||
+            event.clientY > r.bottom
+          )
+            event.target.close();
+        }
+      });
+      function updateNavigation() {
+        const archive =
+          $("archive").getBoundingClientRect().top < innerHeight * 0.4;
+        for (const [id, active] of [
+          ["nav-archive", archive],
+          ["nav-monitor", !archive],
+        ]) {
+          $(id).classList.toggle("active", active);
+          if (active) $(id).setAttribute("aria-current", "location");
+          else $(id).removeAttribute("aria-current");
+        }
+      }
+      addEventListener("scroll", updateNavigation, { passive: true });
+      addEventListener("resize", updateNavigation);
+      updateNavigation();
+      $("start").value = fieldTime(new Date(Date.now() - 3600000));
+      $("end").value = fieldTime(new Date());
+      tick();
+      setInterval(tick, 1000);
+      async function poll() {
+        await updateStatus();
+        setTimeout(poll, 4000);
+      }
+      poll();
+    </script>
+  </body>
+</html>
