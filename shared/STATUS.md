@@ -1,6 +1,6 @@
 # 협업 인수인계
 
-기준일: 2026-10-22. 현재 컴퓨터는 **A 노트북**이다.
+기준일: 2026-10-22. A/B 공동 인수인계 문서다. B 작업은 **노트북 B**, `work/b-server` 브랜치에서 진행한다.
 
 ## 진행 범위
 
@@ -11,15 +11,16 @@
 - Tailscale 1.104.2 설치 및 A 로그인 확인. A 주소 `192.0.2.10`, 이름 `notebook-a.example.invalid`.
 - 인증 RTSP relay가 A Tailscale 주소의 8555 포트에서 실행 중. A 자신이 Tailscale 주소로 3채널 디코딩 성공, 인증 없는 요청 401 차단 확인. 실제 B/다른 인터넷 수신은 아직 미검증이며 현재 연결된 peer가 없다.
 - HTTPS API는 Tailscale Serve 기능 활성화를 기다리는 중. 예정 주소 `https://notebook-a.example.invalid`. Serve 설정이 완료되기 전에는 이 주소를 동작하는 API로 간주하지 않는다.
-- B/관리자/신고 앱은 아직 구현하지 않았다. README만 있으며 생성된 서버나 앱으로 오해하지 않는다.
+- B: FastAPI·SQLite·역할별 인증·신고와 대기 작업 저장·A 메타데이터 연동·승인된 위치 반경 후보 조회를 구현했다. [B 검증 기록](B-검증기록.md) 참고.
+- B의 AI worker, 영상 수신/추출·보존, WebSocket, Next.js 관리자와 신고 앱은 아직 구현하지 않았다. 대기 작업을 분석 성공으로 해석하지 않는다.
 
 ## 다음 B Codex가 할 일
 
-1. 이 문서와 원문·API 계약을 읽고 실제 B GPU·VRAM·CUDA를 확인한다.
-2. `work/b-server` 브랜치에서 FastAPI·DB·인증·작업 상태를 구현한다.
-3. A와 B를 Tailscale에 연결하고 A의 HTTPS Adapter + RTSP relay 연결을 실제 확인한다. 계정 자격증명은 별도 전달한다.
-4. YOLO/MediaPipe와 신고 반경→후보 저FPS 탐색→집중 분석을 B에서 구현한다.
-5. Next.js 관리자의 모의 신고로 통합한다. Expo 앱은 마지막이다.
+1. B GPU는 RTX 3060 Laptop / 6144MiB / 드라이버 610.62 확인. Python 3.11.9 사용. PyTorch CUDA 추론은 아직 미검증이다.
+2. B의 `notebook-b/central-server/start.ps1`로 로컬 서버를 실행할 수 있다. 기본 포트 8000, 실제 비밀 설정과 DB는 Git 제외.
+3. B에 Tailscale을 설치·로그인하고 A의 HTTPS Serve가 활성화되면 URL·A 토큰을 B 환경변수에 설정한다. 토큰은 별도 비공개 전달한다. 실제 HTTPS/RTSP 수신은 후속 검증한다.
+4. B의 FFmpeg·PyTorch CUDA·YOLO/MediaPipe와 신고 반경→후보 저FPS 탐색→집중 분석 worker를 구현·검증한다. 반경 후보 생성만 현재 구현되어 있다.
+5. 첨부 업로드·증거 보존·WebSocket과 Next.js 관리자의 모의 신고를 통합한다. Expo 앱은 마지막이다.
 
 ## 미검증/운영 제한
 

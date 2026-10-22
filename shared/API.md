@@ -46,3 +46,39 @@ r.raise_for_status()
 ```
 
 인증 정보는 환경변수로 전달한다. B에서 직접 RTSP를 읽을 때 TCP 전송을 강제한다.
+
+## B 중앙 API v1 — 1차 구현 계약
+
+B 기본 주소는 `http://127.0.0.1:8000`. 외부 노출은 별도 HTTPS 구성 후 진행한다.
+`GET /health` 외 모든 업무 API는 B Bearer 토큰이 필요하다. B 토큰과 A 토큰은 별개다.
+토큰별 `role`(admin/reporter/agent), `subject`를 서버의 비밀 설정으로 관리한다.
+신고자마다 다른 subject를 발급한다. 단일 공용 신고자 토큰은 개인별 소유권을 제공하지 않는다.
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| GET | `/health` | 공개 최소 생존 확인 |
+| GET | `/api/v1/admin/status` | 관리자, AI 미구현·Adapter 설정 여부 |
+| POST | `/api/v1/reports` | 신고자, 신고·대기 작업을 하나의 DB 트랜잭션으로 생성 |
+| POST | `/api/v1/demo/reports` | 관리자, 같은 접수 파이프라인; source=demo |
+| GET | `/api/v1/reports/{id}/status` | 신고 소유자 또는 관리자, 작업 대기 상태 |
+| GET | `/api/v1/admin/reports` | 관리자, 최근 신고 목록 (limit≤100, offset) |
+| GET | `/api/v1/admin/reports/{id}` | 관리자, 신고 본문·위치·작업 |
+| POST | `/api/v1/admin/agent/sync` | 관리자, A 카메라 메타데이터 읽기·저장 |
+| GET | `/api/v1/admin/cameras` | 관리자, 마지막 관측·신선도·등록 위치 |
+| PUT | `/api/v1/admin/cameras/{id}/location` | 관리자, 위치·접근 승인 등록 |
+| GET | `/api/v1/admin/reports/{id}/candidates` | 관리자, 승인·온라인·60초 이내·동일 위치종류·반경 내 거리 후보 |
+| GET | `/api/v1/admin/recordings` | 관리자, A 녹화구간 조회; camera_id/start/end 필수 |
+| GET | `/api/v1/agent/jobs` | agent, 대기 작업 메타데이터 조회 (worker/실행 기능 아님) |
+
+신고 입력: `description`(1~4000자), `latitude`(-90~90), `longitude`(-180~180),
+`location_kind`(real/demo, 기본 real), `details`(최대 1000자),
+`occurred_at`(timezone 있는 RFC3339, 선택), `radius_m`(1~5000m, 기본 500m).
+접수·작업 출력: `report_id`, `source`, `created_at`, `job`.
+작업은 `id,report_id,state=queued,stage=awaiting_worker,progress=0`이다.
+분석 결과나 긴급성을 판정하지 않는다. 입력 위반 422, 인증 401, 권한 403,
+없는 신고/카메라 404, A 설정 없음/통신 실패 503, 잘못된 A 응답 502.
+다른 신고자의 상태 조회도 404로 처리한다. B는 A 비밀 토큰·장치 경로를 반환하지 않는다.
+위치 입력: `latitude,longitude,kind`(real/demo), `approved`(bool).
+카메라 ID는 A에서 받은 ID만 사용하며 미등록 카메라 좌표를 임의 생성하지 않는다.
+녹화 조회는 timezone 있는 `start < end`이며 A가 제공한 구간을 반환한다.
+이 단계는 파일 추출/보존이나 실제 영상 수신을 수행하지 않는다.
