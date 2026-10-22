@@ -93,7 +93,19 @@ function PublicLayer({ enabled, onCount }: { enabled: boolean; onCount?: MapProp
   );
 }
 
+// Next keeps visited routes alive in a hidden <Activity>. react-leaflet removes its map when the
+// route is hidden and cannot reuse it afterwards, so mount a fresh map each time it becomes visible.
 export default function ChartMap(props: MapProps) {
+  const [generation, setGeneration] = useState(0);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the effect lifecycle is the visibility signal
+    setGeneration((value) => value + 1);
+    return () => setGeneration(0);
+  }, []);
+  return generation ? <LiveMap key={generation} {...props} /> : null;
+}
+
+function LiveMap(props: MapProps) {
   const mapRef = useRef<LeafletMap | null>(null);
   const { selected, ranking, cameras } = props;
   const running = selected?.job.state === "running" || selected?.job.state === "queued";
