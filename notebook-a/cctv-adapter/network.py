@@ -26,6 +26,7 @@ rtmp: false
 hls: false
 webrtc: false
 srt: false
+moq: false
 authInternalUsers:
   - user: {settings['rtsp_user']}
     pass: {settings['rtsp_password']}

@@ -105,6 +105,7 @@ rtspAddress: 127.0.0.1:8554
 rtspTransports: [tcp]
 rtmp: false
 srt: false
+moq: false
 webrtc: false
 hls: true
 hlsAddress: 127.0.0.1:8888

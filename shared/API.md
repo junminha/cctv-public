@@ -5,7 +5,8 @@ A의 base는 로컬 전용이며 B는 이 Adapter만 사용한다. 중앙 서버
 ## 연결과 인증
 
 - 개발 로컬: `http://127.0.0.1:8766`.
-- 외부: Tailscale Serve가 제공한 `https://<A-host>.<tailnet>.ts.net`. 실제 URL은 A 네트워크 연결 후 결정한다.
+- 외부 예정 주소: `https://notebook-a.example.invalid`. HTTPS Serve 활성화 여부는 `STATUS.md`를 확인한다.
+- 인증 RTSP 주소: `rtsp://192.0.2.10:8555/{camera_id}`. A 내부 자체 접속 검증 완료, B 수신은 미검증.
 - 모든 요청: `Authorization: Bearer <A의 secrets.json.token>`.
 - RTSP는 별도 인증 계정 `rtsp_user`/`rtsp_password`를 B 비밀 설정에 전달한다. URL 또는 GitHub에 자격증명을 넣지 않는다.
 - A의 base RTSP/API/HLS/playback은 loopback에만 바인딩한다. 원격 RTSP는 별도 relay가 Tailscale IPv4:8555에만 바인딩한다. relay 중지는 A 녹화에 영향을 주지 않는다.
