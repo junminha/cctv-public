@@ -72,7 +72,8 @@ class Pipeline:
                 {**report, 'incident_type': result.get('classification', {}).get('incident_type', 'OTHER')}, []))
         result['finished_at'] = utc()
         result['processing_seconds'] = round(time.monotonic() - started, 3)
-        result['latency_seconds'] = round((parse(result['finished_at']) - parse(report['created_at'])).total_seconds(), 3)
+        result['requested_at'] = job.get('requested_at') or report['created_at']
+        result['latency_seconds'] = round((parse(result['finished_at']) - parse(result['requested_at'])).total_seconds(), 3)
         self.store.save_analysis(report['report_id'], result)
         self.store.update_job(job['id'], result['outcome'], 1.0, state=state, error=error)
         self.store.event(report['report_id'], 'analysis_finished', result['outcome'],

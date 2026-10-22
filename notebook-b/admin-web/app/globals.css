@@ -1,0 +1,109 @@
+@import "tailwindcss";
+
+/* Harbour chart palette: paper, ink, beacon (reports), tide (approved webcams), buoy (public CCTV). */
+:root {
+  --chart: #eef3f1;
+  --chart-deep: #dde7e3;
+  --rule: #c5d3cf;
+  --surface: #ffffff;
+  --ink: #0f2a3d;
+  --ink-soft: #4b6271;
+  --beacon: #e2580b;
+  --beacon-wash: #fde9dc;
+  --tide: #0d7f81;
+  --tide-wash: #dbefee;
+  --buoy: #8a9ba8;
+  --amber: #a86a12;
+  --amber-wash: #f8ecd6;
+  /* Chart series, validated with the dataviz palette checker (light surface). */
+  --series-selective: #e2580b;
+  --series-all: #00939a;
+}
+
+@theme inline {
+  --color-chart: var(--chart);
+  --color-chart-deep: var(--chart-deep);
+  --color-rule: var(--rule);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-beacon: var(--beacon);
+  --color-beacon-wash: var(--beacon-wash);
+  --color-tide: var(--tide);
+  --color-tide-wash: var(--tide-wash);
+  --color-buoy: var(--buoy);
+  --color-amber: var(--amber);
+  --color-amber-wash: var(--amber-wash);
+  --color-series-selective: var(--series-selective);
+  --color-series-all: var(--series-all);
+  --font-sans: var(--font-plex-kr), system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  --font-display: var(--font-han), var(--font-plex-kr), sans-serif;
+}
+
+html,
+body {
+  background: var(--chart);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--beacon);
+  outline-offset: 2px;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Signature: the report radius sweeps like a harbour radar while analysis runs. */
+.radar-sweep {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: radar 2.4s linear infinite;
+}
+
+@keyframes radar {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -60; }
+}
+
+.beacon-pulse {
+  animation: pulse 1.6s ease-out infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.9; }
+  100% { opacity: 0.25; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .radar-sweep,
+  .beacon-pulse {
+    animation: none;
+  }
+}
+
+.leaflet-container {
+  font-family: var(--font-sans);
+  background: var(--chart-deep);
+}
+
+.leaflet-tooltip.score-tag {
+  background: var(--ink);
+  color: #fff;
+  border: none;
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  box-shadow: none;
+}
+
+.leaflet-tooltip.score-tag::before {
+  display: none;
+}

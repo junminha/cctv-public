@@ -288,3 +288,13 @@ def test_intake_queues_automatic_analysis_when_worker_enabled(tmp_path):
         assert detail['analysis']['outcome'] == 'CAMERA_UNAVAILABLE'
         status = client.get(f"/api/v1/reports/{created['report_id']}/status", headers=auth(REPORTER)).json()
         assert status['job']['stage'] == 'CAMERA_UNAVAILABLE' and 'params' not in status['job']
+
+
+def test_latency_is_measured_from_the_analysis_request(system):
+    client, _, _ = system
+    report_id = report(client)
+    time.sleep(1.5)
+    analysis = analyze(client, report_id)['analysis']
+    detail_created = client.get(f'/api/v1/admin/reports/{report_id}', headers=auth(ADMIN)).json()['created_at']
+    assert analysis['requested_at'] > detail_created
+    assert analysis['latency_seconds'] < analysis['processing_seconds'] + 1.5

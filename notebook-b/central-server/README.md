@@ -9,10 +9,11 @@ A 녹화 프로그램이나 USB 장치에 직접 접근하지 않고 [공유 API
 - 일반·관리자 모의 신고를 동일한 트랜잭션으로 저장. 서버 재시작 후 신고와 작업 유지.
 - A 카메라 동기화, 녹화구간 조회. A 장애 중에도 신고 접수 가능.
 - 관리자 위치/승인 등록, 실제/데모 위치 구분, 60초 이내 관측·온라인·승인·반경 조건 후보 조회.
-- 작업 상태는 `queued / awaiting_worker`. **AI 분석 worker는 아직 없으며 자동 분석하지 않는다.**
+- `CCTV_WORKER_ENABLED=true`이면 GPU worker가 신고→반경 후보→저FPS 탐색→집중 분석→요약을 수행한다. 끄면 작업은 `queued / awaiting_worker`로 남는다.
 - A 녹화 추출본을 수신해 SHA256·크기·재생 길이·첫 프레임을 확인하고 사건별로 보존/다운로드한다. 미승인 카메라는 보존하지 않는다.
 - 공식 부산 공개 CCTV 장비 좌표 21,009건을 별도 위치 카탈로그 API로 제공한다. 공개 좌표는 영상 접근권한이 아니다.
-- 실시간 RTSP 디코딩·AI worker, 첨부파일, WebSocket, YOLO/MediaPipe/OpenAI, Next.js, Expo는 후속 단계다.
+- YOLO26n + MediaPipe Pose(CUDA), OpenAI 분류·전사·요약(키 없으면 로컬 규칙), 첨부 업로드, 확인·종결, 지표, WebSocket. API는 `shared/API.md`의 v0.2 절.
+- 관리자 화면은 `../admin-web`. Expo 앱은 별도 단계다.
 
 ## 설치·실행 (저장소 루트 PowerShell)
 
@@ -20,6 +21,8 @@ A 녹화 프로그램이나 USB 장치에 직접 접근하지 않고 [공유 API
 py -3.11 -m venv notebook-b/central-server/.venv
 notebook-b/central-server/.venv/Scripts/python.exe -m pip install -r notebook-b/central-server/requirements-dev.lock
 notebook-b/central-server/.venv/Scripts/python.exe notebook-b/central-server/setup_tools.py
+notebook-b/central-server/.venv/Scripts/python.exe notebook-b/central-server/setup_models.py
+Copy-Item notebook-b/central-server/.env.example notebook-b/central-server/.env   # 처음 한 번, OPENAI_API_KEY 입력
 powershell -ExecutionPolicy Bypass -File notebook-b/central-server/start.ps1
 ```
 
@@ -73,7 +76,7 @@ Invoke-RestMethod http://127.0.0.1:8000/api/v1/demo/reports -Method Post -Header
 
 원격 Adapter는 HTTPS와 인증서 검증을 사용한다. HTTP는 명시적인 loopback 테스트 주소만 허용한다.
 리다이렉트는 따르지 않고 시스템 프록시를 사용하지 않는다. A URL에 토큰이나 사용자 정보를 넣지 않는다.
-`.env.example`은 참고용이며 `start.ps1`은 `.env` 파일을 자동 로드하지 않는다.
+서버는 이 폴더의 `.env`를 자동으로 읽는다(Git 제외). 같은 이름의 환경변수가 있으면 환경변수가 우선한다.
 카메라는 요청 시 동기화한다. 후보 조회 전 동기화해야 하며 60초 지난 관측은 분석 후보에서 제외한다.
 공개 위치정보만 있는 CCTV를 승인된 영상 소스로 등록하면 안 된다.
 현재 시연 영상 입력은 A 웹캠 `cam-01/02/03`만 허용한다. 실제 공공 CCTV는 지도·목록 표시 전용이고 AI 학습·분석·시연 영상·보존 대상에서 제외한다.

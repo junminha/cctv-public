@@ -137,10 +137,12 @@ class Store:
                                       ORDER BY jobs.updated_at, created_at LIMIT 1''').fetchone()
             if row is None:
                 return None
+            requested = database.execute('SELECT updated_at FROM jobs WHERE id=?', (row['id'],)).fetchone()[0]
             claimed = database.execute('''UPDATE jobs SET state='running', stage='RECEIVED', updated_at=?
                                           WHERE id=? AND state='queued' ''', (utc(), row['id'])).rowcount
             job = database.execute('SELECT * FROM jobs WHERE id=?', (row['id'],)).fetchone()
-        return self._job(job) if claimed else None
+        # Intake and re-analysis both set updated_at when queued: that is the request time.
+        return {**self._job(job), 'requested_at': requested} if claimed else None
 
     def update_job(self, job_id, stage, progress, state='running', error=None):
         with self.connect() as database:

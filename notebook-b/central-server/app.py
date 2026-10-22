@@ -211,7 +211,7 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
         benchmarks = [{'report_id': row.get('report_id'), 'finished_at': row.get('finished_at'),
                        **row['benchmark']} for row in analyses if row.get('benchmark')][:20]
         return {**data, 'outcomes': outcomes, 'latency_seconds': latency, 'benchmarks': benchmarks,
-                'note': '지연은 신고 접수부터 분석 결과 저장까지이며 수동 재분석 요청은 접수 시각 기준입니다.'}
+                'note': '지연은 분석 요청(자동 분석은 신고 접수) 시각부터 결과 저장까지입니다.'}
 
     @app.post('/api/v1/admin/ws-ticket', dependencies=[Depends(admin)])
     def ws_ticket():
