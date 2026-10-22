@@ -1,0 +1,58 @@
+{
+  "checked_at": "2026-10-22T01:08:02.117714+00:00",
+  "base": {
+    "started": "2026-10-22T01:00:33.291242+00:00",
+    "time": "2026-10-22T01:08:02.117304+00:00",
+    "disk_free_gb": 370.03,
+    "disk_low": false,
+    "retention_days": 7,
+    "cameras": [
+      {
+        "id": "cam-01",
+        "name": "내장 전면카메라",
+        "online": true,
+        "bytes_received": 84485811,
+        "restarts": 0,
+        "recording": true
+      },
+      {
+        "id": "cam-02",
+        "name": "USB 카메라 1",
+        "online": true,
+        "bytes_received": 84555064,
+        "restarts": 0,
+        "recording": true
+      },
+      {
+        "id": "cam-03",
+        "name": "USB 카메라 2",
+        "online": true,
+        "bytes_received": 82267943,
+        "restarts": 0,
+        "recording": true
+      }
+    ]
+  },
+  "b_required": false,
+  "channels": [
+    {
+      "id": "cam-01",
+      "rtsp_decode": true,
+      "playback_decode": true,
+      "longest_continuous_seconds": 448.986216
+    },
+    {
+      "id": "cam-02",
+      "rtsp_decode": true,
+      "playback_decode": true,
+      "longest_continuous_seconds": 452.962684
+    },
+    {
+      "id": "cam-03",
+      "rtsp_decode": true,
+      "playback_decode": true,
+      "longest_continuous_seconds": 456.959943
+    }
+  ],
+  "external_network": "NOT_TESTED"
+}

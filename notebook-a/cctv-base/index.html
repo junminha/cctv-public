@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A 노트북 · CCTV</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#10151c;color:#e9eef5;font:16px system-ui,sans-serif}header,main{max-width:1500px;margin:auto;padding:24px}header{border-bottom:1px solid #344050;display:flex;justify-content:space-between;align-items:center}h1{font-size:24px;margin:0}p,small{color:#adbccd}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}article,section{border:1px solid #344050;border-radius:10px;padding:16px;background:#19222d}h2{font-size:18px;margin:0 0 10px}iframe{width:100%;aspect-ratio:16/9;border:0;background:#000}section{margin-top:24px}label{display:inline-block;margin:8px}input,select,button{padding:10px;background:#263444;border:1px solid #566880;border-radius:5px;color:white;font:inherit}button{cursor:pointer;background:#176d60}.state{display:block;font-size:14px;margin-top:8px}.ok{color:#66ddae}.bad{color:#ff9e92}video{width:100%;max-height:480px;background:#000;margin-top:15px}#results button{display:block;margin:8px 0;width:100%;text-align:left}#status{max-width:550px}a{color:#7edec7}@media(max-width:850px){.grid{grid-template-columns:1fr}header{display:block}}
+</style>
+<header><div><h1>CCTV · 노트북 A</h1><p>독립 녹화 / 실시간 모니터 / 녹화 검색</p></div><div id="status" role="status">상태 확인 중…</div></header>
+<main><div class="grid" id="cameras"></div>
+<section><h2>녹화 검색·재생</h2><p>한국 시간으로 검색합니다. 현재 녹화 중인 구간은 최대 약 60초 뒤 검색에 반영됩니다. 보관 기간 7일.</p>
+<label>카메라 <select id="camera"></select></label><label>시작 <input type="datetime-local" id="start"></label><label>종료 <input type="datetime-local" id="end"></label><button id="search">검색</button>
+<div id="message" role="status"></div><div id="results"></div><video id="playback" controls playsinline></video><p><a id="download" hidden>선택 구간 MP4 저장</a></p></section>
+<p>카메라 연결을 끊으면 해당 채널만 재접속합니다. 같은 모델 USB 카메라는 기존 USB 포트를 유지하세요.</p></main>
+<script>
+const $=id=>document.getElementById(id);let loaded=false;
+function localValue(d){return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,16)}
+$('start').value=localValue(new Date(Date.now()-3600000));$('end').value=localValue(new Date());
+async function status(){try{const r=await fetch('/api/status');if(!r.ok)throw Error('연결 실패');const s=await r.json();
+$('status').textContent=`여유 ${s.disk_free_gb} GB · ${s.fatal_error?'서비스 오류: '+s.fatal_error:s.disk_low?'저장공간 부족: 녹화 중지':'녹화 서비스 가동'} · ${new Date(s.time).toLocaleTimeString('ko-KR',{timeZone:'Asia/Seoul'})}`;
+if(!loaded){for(const c of s.cameras){const article=document.createElement('article');const title=document.createElement('h2');title.textContent=`${c.id} · ${c.name}`;const f=document.createElement('iframe');f.title=c.name+' 실시간 영상';f.src=`http://127.0.0.1:8888/${c.id}/?muted=true&autoplay=true`;f.allow='autoplay; fullscreen';const state=document.createElement('span');state.id=c.id;state.className='state';article.append(title,f,state);$('cameras').append(article);const option=document.createElement('option');option.value=c.id;option.textContent=`${c.id} · ${c.name}`;$('camera').append(option)}loaded=true}
+for(const c of s.cameras){$(c.id).textContent=c.online?`● 실시간 연결 · ${c.recording?'최근 녹화 파일 확인됨':s.disk_low?'녹화 중지':'녹화 파일 확인 대기 (최대 약 60초)'} · 재시작 ${c.restarts}회`:'● 오프라인 · 재연결 대기';$(c.id).className='state '+(c.online?'ok':'bad')}
+}catch(e){$('status').textContent='서비스에 연결할 수 없습니다. 시작 스크립트를 확인하세요.'}}
+$('search').onclick=async()=>{try{const q=new URLSearchParams({camera:$('camera').value,start:new Date($('start').value).toISOString(),end:new Date($('end').value).toISOString()});const r=await fetch('/api/recordings?'+q);const rows=await r.json();if(!r.ok)throw Error(rows.error);$('results').replaceChildren();$('message').textContent=rows.length?`${rows.length}개 연속 녹화 구간. 버튼을 누르면 앞부분 최대 60분을 재생합니다.`:'해당 시간에 녹화가 없습니다.';for(const row of rows){const b=document.createElement('button');b.textContent=`${new Date(row.start).toLocaleString('ko-KR',{timeZone:'Asia/Seoul'})} · ${Math.round(row.duration)}초`;b.onclick=()=>{const url='/api/playback?'+new URLSearchParams({camera:$('camera').value,start:row.start,duration:Math.min(row.duration,3600)});$('playback').src=url;$('playback').play().catch(()=>{});$('download').href=url;$('download').download='recording.mp4';$('download').hidden=false};$('results').append(b)}}catch(e){$('message').textContent='검색 실패: '+e.message}};
+status();setInterval(status,4000);
+</script></html>
