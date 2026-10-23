@@ -72,7 +72,7 @@ export function Console() {
           <div className="pointer-events-auto rounded border border-rule bg-surface/95 px-3 py-2 text-xs shadow-sm">
             <p className="mb-1 font-medium">지도 범례</p>
             <ul className="space-y-1 text-ink-soft">
-              <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-blue-600" />신고 지점과 검색 반경</li>
+              <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-violet-600" />신고 지점과 검색 반경</li>
               <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
               <li className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full bg-signal ring-1 ring-white" />
@@ -97,7 +97,7 @@ export function Console() {
         ) : (
           <div className="p-6 text-sm text-ink-soft">
             <p className="font-display text-2xl text-ink">신고를 선택하세요</p>
-            <p className="mt-2">왼쪽 목록이나 지도의 파란 지점을 누르면 후보 카메라, 분석 근거, 요약이 여기에 표시됩니다.</p>
+            <p className="mt-2">왼쪽 목록이나 지도의 보라 지점을 누르면 후보 카메라, 분석 근거, 요약이 여기에 표시됩니다.</p>
             <p className="mt-2">
               접수된 신고 전체는 왼쪽 위 <strong className="text-ink">CSV 내보내기</strong>로, 신고 1건의 증거 자료는 상세 화면의 <strong className="text-ink">증거 묶음 다운로드</strong>로 받을 수 있습니다.
             </p>
