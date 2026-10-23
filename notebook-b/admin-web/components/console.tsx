@@ -23,6 +23,9 @@ export function Console() {
   const reports = useMemo(() => snapshot?.reports ?? [], [snapshot]);
   const cameras = snapshot?.cameras ?? [];
   const selected = reports.find((report) => report.report_id === selectedId) ?? null;
+  const [preview, setPreview] = useState<{ id: string; radius: number } | null>(null);
+  // Show the radius being dragged right away instead of waiting for the save and the next live snapshot.
+  const mapSelected = selected && preview?.id === selected.report_id ? { ...selected, radius_m: preview.radius } : selected;
   // Refetch the full detail whenever the live job state for the selected report changes.
   const jobKey = selected ? `${selected.job.state}:${selected.job.stage}:${selected.job.progress}:${selected.review?.closed_at}` : "";
 
@@ -37,6 +40,7 @@ export function Console() {
 
   function select(reportId: string) {
     setSelectedId(reportId);
+    setPreview(null);
     const report = reports.find((row) => row.report_id === reportId);
     if (report) setFocus([report.latitude, report.longitude]);
   }
@@ -58,7 +62,7 @@ export function Console() {
         <ChartMap
           reports={reports}
           cameras={cameras}
-          selected={selected}
+          selected={mapSelected}
           ranking={detail?.report_id === selectedId ? detail?.analysis?.cameras ?? [] : []}
           draft={null}
           picking={false}
@@ -93,7 +97,8 @@ export function Console() {
 
       <aside className="order-3 border-rule bg-surface lg:min-h-0 lg:overflow-y-auto lg:border-l">
         {selected && detail && detail.report_id === selected.report_id ? (
-          <ReportPanel key={detail.report_id} detail={detail} live={selected} cameras={cameras} onChanged={refresh} />
+          <ReportPanel key={detail.report_id} detail={detail} live={selected} cameras={cameras} onChanged={refresh}
+            onRadiusPreview={(radius) => setPreview({ id: detail.report_id, radius })} />
         ) : (
           <div className="p-6 text-sm text-ink-soft">
             <p className="font-display text-2xl text-ink">신고를 선택하세요</p>

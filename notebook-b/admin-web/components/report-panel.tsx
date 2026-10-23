@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, bPath, type AnalysisCamera, type AnalyzeParams, type Camera, type Clip, type ReportDetail, type ReportSummary } from "@/lib/api";
 import { INCIDENT, kst, kstTime, OUTCOME, shortId, sourceLabel, sourceLabelAI, STAGES } from "@/lib/labels";
 
@@ -85,11 +85,12 @@ function Ranking({ cameras, selected }: { cameras: AnalysisCamera[]; selected: s
   );
 }
 
-export function ReportPanel({ detail, live, cameras, onChanged }: {
+export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview }: {
   detail: ReportDetail;
   live: ReportSummary;
   cameras: Camera[];
   onChanged: () => void;
+  onRadiusPreview?: (radius: number) => void;
 }) {
   const analysis = detail.analysis;
   const summary = analysis?.summary;
@@ -104,6 +105,32 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
   const [radius, setRadius] = useState(detail.radius_m);
   const [radiusNote, setRadiusNote] = useState("");
   const radiusValid = Number.isFinite(radius) && radius >= 1 && radius <= 5000;
+  // The parent re-renders on every live snapshot; keep the latest callback without restarting the save timer.
+  const changed = useRef(onChanged);
+  useEffect(() => {
+    changed.current = onChanged;
+  });
+
+  // Save the radius shortly after the slider or number stops moving; the map previews it immediately.
+  useEffect(() => {
+    if (!radiusValid || radius === detail.radius_m) return;
+    const timer = setTimeout(async () => {
+      try {
+        await api(`/api/v1/admin/reports/${detail.report_id}/radius`, { method: "PUT", json: { radius_m: radius } });
+        setRadiusNote("저장했습니다. 후보 카메라에 반영하려면 다시 분석하세요.");
+        changed.current();
+      } catch (reason) {
+        setRadiusNote(reason instanceof Error ? reason.message : "반경을 바꾸지 못했습니다.");
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [radius, radiusValid, detail.radius_m, detail.report_id]);
+
+  function changeRadius(value: number) {
+    setRadius(value);
+    setRadiusNote("");
+    if (Number.isFinite(value) && value >= 1 && value <= 5000) onRadiusPreview?.(value);
+  }
 
   useEffect(() => {
     api<{ clips: Clip[] }>(`/api/v1/admin/reports/${detail.report_id}/clips`).then((value) => setClips(value.clips)).catch(() => {});
@@ -118,20 +145,6 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
       onChanged();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "요청하지 못했습니다.");
-    } finally {
-      setBusy("");
-    }
-  }
-
-  async function applyRadius() {
-    setBusy("radius");
-    setRadiusNote("");
-    try {
-      await api(`/api/v1/admin/reports/${detail.report_id}/radius`, { method: "PUT", json: { radius_m: radius } });
-      setRadiusNote("적용했습니다. 후보 카메라에 반영하려면 다시 분석하세요.");
-      onChanged();
-    } catch (reason) {
-      setRadiusNote(reason instanceof Error ? reason.message : "반경을 바꾸지 못했습니다.");
     } finally {
       setBusy("");
     }
@@ -167,15 +180,12 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
             <span className="font-mono text-ink-soft">현재 {detail.radius_m}m</span>
           </div>
           <input type="range" min={50} max={5000} step={50} value={Math.min(Math.max(radius, 50), 5000)}
-            onChange={(event) => setRadius(Number(event.target.value))} aria-label="검색 반경" className="mt-1 w-full accent-blue-600" />
+            onChange={(event) => changeRadius(Number(event.target.value))} aria-label="검색 반경" className="mt-1 w-full accent-violet-600" />
           <div className="mt-1 flex items-center gap-2">
             <input type="number" min={1} max={5000} value={Number.isFinite(radius) ? radius : ""}
-              onChange={(event) => setRadius(event.target.valueAsNumber)}
+              onChange={(event) => changeRadius(event.target.valueAsNumber)}
               className="w-24 rounded border border-rule bg-surface px-2 py-1 font-mono text-sm" />
-            <span className="text-xs text-ink-soft">m (1~5000)</span>
-            <button disabled={!radiusValid || radius === detail.radius_m || busy !== ""}
-              onClick={applyRadius}
-              className="ml-auto rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40">적용</button>
+            <span className="text-xs text-ink-soft">m (1~5000) · 움직이면 바로 저장</span>
           </div>
           {radiusNote && <p role="status" className="mt-1 text-xs">{radiusNote}</p>}
         </div>
