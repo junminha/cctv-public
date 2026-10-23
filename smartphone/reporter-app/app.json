@@ -1,0 +1,56 @@
+{
+  "expo": {
+    "name": "시민 안전 신고",
+    "slug": "cctv-reporter",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "cctvreporter",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#0E2433",
+    "ios": {
+      "supportsTablet": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0E2433",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-status-bar",
+      "expo-secure-store",
+      "expo-font",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "신고 상황을 녹음해 담당자에게 보내려면 마이크가 필요해요."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "신고 위치를 담당자에게 보내려면 현재 위치가 필요해요."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": "신고 현장의 사진과 짧은 영상을 찍으려면 카메라가 필요해요.",
+          "microphonePermission": "짧은 영상의 소리를 함께 담으려면 마이크가 필요해요."
+        }
+      ],
+      "expo-asset"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
