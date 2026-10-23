@@ -3,11 +3,13 @@
 import "leaflet/dist/leaflet.css";
 import { useEffect, useRef, useState } from "react";
 import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
-import type { LatLngExpression, Map as LeafletMap } from "leaflet";
+import { latLng, type LatLngExpression, type Map as LeafletMap } from "leaflet";
 import { api, type AnalysisCamera, type Camera, type ReportSummary } from "@/lib/api";
 
 const BUSAN: LatLngExpression = [35.1336, 129.103]; // PKNU Daeyeon campus, exhibition venue
 const PUBLIC_MIN_ZOOM = 14;
+// Fit the search circle with a little room around it.
+const RADIUS_MARGIN = 1.25;
 // Canvas rendering cannot resolve CSS variables, so mirror the globals.css tokens here.
 const COLORS = { beacon: "#e2580b", report: "#7c3aed", tide: "#0d7f81", buoy: "#8a9ba8", signal: "#dc2626", ink: "#0f2a3d", "ink-soft": "#4b6271" } as const;
 const css = (name: keyof typeof COLORS) => COLORS[name];
@@ -22,7 +24,6 @@ export type MapProps = {
   draft: [number, number] | null;
   picking: boolean;
   showPublic: boolean;
-  focus?: [number, number] | null;
   onPick: (point: [number, number]) => void;
   onSelect: (reportId: string) => void;
   onPublicCount?: (count: { shown: number; total: number } | null) => void;
@@ -37,11 +38,25 @@ function Clicks({ picking, onPick }: { picking: boolean; onPick: MapProps["onPic
   return null;
 }
 
-function Fly({ target }: { target?: [number, number] | null }) {
+function FitRadius({ report }: { report: ReportSummary | null }) {
   const map = useMap();
+  const shown = useRef<string | null>(null);
+  const id = report?.report_id;
+  const lat = report?.latitude;
+  const lng = report?.longitude;
+  const radius = report?.radius_m;
   useEffect(() => {
-    if (target) map.flyTo(target, Math.max(map.getZoom(), 18), { duration: 0.6 });
-  }, [map, target]);
+    if (id === undefined || lat === undefined || lng === undefined || radius === undefined) {
+      shown.current = null;
+      return;
+    }
+    const bounds = latLng(lat, lng).toBounds(radius * 2 * RADIUS_MARGIN);
+    const options = { padding: [16, 16] as [number, number], maxZoom: 19 };
+    // Glide to a newly selected report; follow radius changes quickly so dragging the slider feels live.
+    if (shown.current !== id) map.flyToBounds(bounds, { ...options, duration: 0.6 });
+    else map.fitBounds(bounds, { ...options, animate: true, duration: 0.25 });
+    shown.current = id;
+  }, [map, id, lat, lng, radius]);
   return null;
 }
 
@@ -126,7 +141,7 @@ function LiveMap(props: MapProps) {
         maxZoom={19}
       />
       <Clicks picking={props.picking} onPick={props.onPick} />
-      <Fly target={props.focus} />
+      <FitRadius report={selected} />
       <PublicLayer enabled={props.showPublic} onCount={props.onPublicCount} />
 
       {selected && (

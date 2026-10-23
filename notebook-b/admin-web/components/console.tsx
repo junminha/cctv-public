@@ -18,7 +18,6 @@ export function Console() {
   const [detail, setDetail] = useState<ReportDetail | null>(null);
   const [showPublic, setShowPublic] = useState(true);
   const [publicCount, setPublicCount] = useState<{ shown: number; total: number } | null>(null);
-  const [focus, setFocus] = useState<[number, number] | null>(null);
 
   const reports = useMemo(() => snapshot?.reports ?? [], [snapshot]);
   const cameras = snapshot?.cameras ?? [];
@@ -41,8 +40,6 @@ export function Console() {
   function select(reportId: string) {
     setSelectedId(reportId);
     setPreview(null);
-    const report = reports.find((row) => row.report_id === reportId);
-    if (report) setFocus([report.latitude, report.longitude]);
   }
 
   const refresh = () => selectedId && api<ReportDetail>(`/api/v1/admin/reports/${selectedId}`).then(setDetail).catch(() => {});
@@ -67,7 +64,6 @@ export function Console() {
           draft={null}
           picking={false}
           showPublic={showPublic}
-          focus={focus}
           onPick={() => {}}
           onSelect={select}
           onPublicCount={setPublicCount}
