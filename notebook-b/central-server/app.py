@@ -26,7 +26,7 @@ from exports import KST, report_package, reports_csv
 from intelligence import Intelligence
 from media import snapshot as capture_snapshot
 from models import (AnalyzeInput, CameraId, CredentialsInput, DEMO_CAMERA_IDS, LocationInput, PasswordResetInput,
-                    PreserveInput, ReportInput, ReviewInput, Username, UtcDatetime, utc)
+                    PreserveInput, RadiusInput, ReportInput, ReviewInput, Username, UtcDatetime, utc)
 from public_catalog import list_cameras as public_cameras
 from store import Store
 from vision import VisionEngine
@@ -268,6 +268,12 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
         if not app.state.store.request_analysis(report_id, payload.model_dump()):
             raise HTTPException(409, 'Analysis is already running for this report')
         return {'report_id': report_id, 'job': app.state.store.report(report_id)['job']}
+
+    @app.put('/api/v1/admin/reports/{report_id}/radius')
+    def radius(report_id: str, payload: RadiusInput, identity: Annotated[dict, Depends(admin)]):
+        find_report(report_id)
+        # Candidates are recomputed from the stored radius; a finished analysis keeps its old ranking until rerun.
+        return app.state.store.set_radius(report_id, payload.radius_m, identity['subject'])
 
     @app.post('/api/v1/admin/reports/{report_id}/confirm')
     def confirm(report_id: str, payload: ReviewInput, identity: Annotated[dict, Depends(admin)]):
