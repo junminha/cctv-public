@@ -167,7 +167,7 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
             <span className="font-mono text-ink-soft">현재 {detail.radius_m}m</span>
           </div>
           <input type="range" min={50} max={5000} step={50} value={Math.min(Math.max(radius, 50), 5000)}
-            onChange={(event) => setRadius(Number(event.target.value))} aria-label="검색 반경" className="mt-1 w-full accent-[#1d5fa6]" />
+            onChange={(event) => setRadius(Number(event.target.value))} aria-label="검색 반경" className="mt-1 w-full accent-blue-600" />
           <div className="mt-1 flex items-center gap-2">
             <input type="number" min={1} max={5000} value={Number.isFinite(radius) ? radius : ""}
               onChange={(event) => setRadius(event.target.valueAsNumber)}
@@ -175,7 +175,7 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
             <span className="text-xs text-ink-soft">m (1~5000)</span>
             <button disabled={!radiusValid || radius === detail.radius_m || busy !== ""}
               onClick={applyRadius}
-              className="ml-auto rounded bg-[#1d5fa6] px-3 py-1 text-sm font-medium text-white hover:brightness-110 disabled:opacity-40">적용</button>
+              className="ml-auto rounded bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-40">적용</button>
           </div>
           {radiusNote && <p role="status" className="mt-1 text-xs">{radiusNote}</p>}
         </div>
