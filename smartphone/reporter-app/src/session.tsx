@@ -1,6 +1,7 @@
+import { router } from 'expo-router';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 
-import { auth, type AttachmentKind } from './api';
+import { ApiError, auth, type AttachmentKind } from './api';
 import { readJson, secret, writeJson } from './storage';
 
 const TOKEN_KEY = 'reporter.token';
@@ -23,6 +24,8 @@ type Session = {
   signIn: (username: string, token: string, isNew: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   updatePrefs: (changes: Partial<Prefs>) => Promise<void>;
+  // True when the error was an expired login (the app has moved to the login screen).
+  expired: (error: unknown) => boolean;
 };
 
 const SessionContext = createContext<Session | null>(null);
@@ -63,7 +66,18 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setToken(null);
   }, [token]);
 
-  const value = useMemo(() => ({ ready, token, prefs, signIn, signOut, updatePrefs }), [ready, token, prefs, signIn, signOut, updatePrefs]);
+  const expired = useCallback((error: unknown) => {
+    if (!(error instanceof ApiError) || error.status !== 401) return false;
+    secret.remove(TOKEN_KEY).catch(() => undefined);
+    setToken(null);
+    router.replace('/login');
+    return true;
+  }, []);
+
+  const value = useMemo(
+    () => ({ ready, token, prefs, signIn, signOut, updatePrefs, expired }),
+    [ready, token, prefs, signIn, signOut, updatePrefs, expired],
+  );
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 

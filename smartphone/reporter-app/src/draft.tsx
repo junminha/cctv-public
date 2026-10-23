@@ -10,6 +10,8 @@ type Draft = {
   address: string | null;
   setGps: (gps: Gps | null) => void;
   setPoint: (point: Point, address?: string | null) => void;
+  // Forget the location so the next report asks the phone again.
+  reset: () => void;
 };
 
 const DraftContext = createContext<Draft | null>(null);
@@ -22,7 +24,12 @@ export function DraftProvider({ children }: { children: ReactNode }) {
     setPointState(next);
     setAddress(label);
   }, []);
-  const value = useMemo(() => ({ gps, point, address, setGps, setPoint }), [gps, point, address, setPoint]);
+  const reset = useCallback(() => {
+    setGps(null);
+    setPointState(null);
+    setAddress(null);
+  }, []);
+  const value = useMemo(() => ({ gps, point, address, setGps, setPoint, reset }), [gps, point, address, setPoint, reset]);
   return <DraftContext.Provider value={value}>{children}</DraftContext.Provider>;
 }
 

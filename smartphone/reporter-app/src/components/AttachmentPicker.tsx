@@ -21,7 +21,18 @@ const now = () => Date.now();
 export const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`;
 
 // Capture only what the reporter chooses, before sending. Nothing captured is fine too.
-export function AttachmentPicker({ kinds, files, onChange }: { kinds: AttachmentKind[]; files: CapturedSet; onChange: (next: CapturedSet) => void }) {
+export function AttachmentPicker({
+  kinds,
+  files,
+  onChange,
+  onRecording,
+}: {
+  kinds: AttachmentKind[];
+  files: CapturedSet;
+  onChange: (next: CapturedSet) => void;
+  // Lets the screen hold its send button while a recording is open.
+  onRecording?: (recording: boolean) => void;
+}) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
   const [recording, setRecording] = useState(false);
@@ -34,6 +45,7 @@ export function AttachmentPicker({ kinds, files, onChange }: { kinds: Attachment
     const duration = now() - startedAt.current;
     await recorder.stop();
     setRecording(false);
+    onRecording?.(false);
     if (keep && recorder.uri) {
       onChange({ ...files, audio: { kind: 'audio', uri: recorder.uri, name: 'voice.m4a', type: 'audio/mp4', label: `녹음 ${clock(duration)}` } });
     }
@@ -49,6 +61,7 @@ export function AttachmentPicker({ kinds, files, onChange }: { kinds: Attachment
       recorder.record();
       startedAt.current = now();
       setRecording(true);
+      onRecording?.(true);
       // Keep recordings short; the analysis only needs the spoken description.
       limit.current = setTimeout(() => stopRecording(true), MAX_AUDIO_MS);
       return;

@@ -9,6 +9,7 @@ import { AttachmentPicker, type CapturedSet } from '@/components/AttachmentPicke
 import { Button, Card, Note, styles as ui } from '@/components/ui';
 import { coords, reportLabels, shortId, when } from '@/geo';
 import { useSession } from '@/session';
+import { queueUploads } from '@/uploads';
 import { color, type } from '@/theme';
 
 const STEPS: Step[] = ['received', 'checking', 'reviewing'];
@@ -16,7 +17,7 @@ const STEPS: Step[] = ['received', 'checking', 'reviewing'];
 export default function ReportDetail() {
   const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { token, prefs } = useSession();
+  const { token, prefs, expired } = useSession();
   const [report, setReport] = useState<ReportView | null>(null);
   const [label, setLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -31,9 +32,10 @@ export default function ReportDetail() {
       setLabel(labels[id] || null);
       setError(null);
     } catch (caught) {
+      if (expired(caught)) return;
       setError(caught instanceof ApiError ? caught.message : '신고를 불러오지 못했어요.');
     }
-  }, [id, token]);
+  }, [expired, id, token]);
 
   useFocusEffect(
     useCallback(() => {
@@ -120,7 +122,8 @@ export default function ReportDetail() {
                     onPress={() => {
                       setExtra({});
                       setPicking(false);
-                      router.push({ pathname: '/sent/[id]', params: { id, files: JSON.stringify(chosen), more: '1' } });
+                      queueUploads(id, chosen);
+                      router.push({ pathname: '/sent/[id]', params: { id, more: '1' } });
                     }}
                   />
                 </View>

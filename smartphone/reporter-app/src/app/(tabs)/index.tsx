@@ -12,6 +12,7 @@ import { Button, Chip, Field, Note, styles as ui } from '@/components/ui';
 import { useDraft } from '@/draft';
 import { RADIUS_M, VENUE, addressOf, coords, locate, rememberLabel } from '@/geo';
 import { useSession } from '@/session';
+import { queueUploads } from '@/uploads';
 import { color, radius, type } from '@/theme';
 
 const WHEN = [
@@ -25,7 +26,7 @@ const minutesBefore = (minutes: number) => new Date(Date.now() - minutes * 60_00
 
 export default function Report() {
   const insets = useSafeAreaInsets();
-  const { token, prefs } = useSession();
+  const { token, prefs, expired } = useSession();
   const draft = useDraft();
   const [status, setStatus] = useState<'locating' | 'ok' | 'denied' | 'unavailable'>('locating');
   const [open, setOpen] = useState(false);
@@ -34,6 +35,7 @@ export default function Report() {
   const [minutesAgo, setMinutesAgo] = useState<number | null>(null);
   // Taken on this screen before sending; only what the reporter chose to capture.
   const [files, setFiles] = useState<CapturedSet>({});
+  const [recording, setRecording] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -71,6 +73,7 @@ export default function Report() {
 
   async function send() {
     if (!token) return router.replace('/login');
+    if (recording) return setError('녹음을 끝낸 뒤 보내 주세요.');
     if (!draft.point) return setError('위치를 확인하지 못했어요. 위치 수정에서 신고 지점을 정해 주세요.');
     setError(null);
     setBusy(true);
@@ -90,10 +93,15 @@ export default function Report() {
       setDescription('');
       setDetails('');
       setMinutesAgo(null);
+      queueUploads(created.report_id, Object.values(files));
       setFiles({});
       setOpen(false);
-      router.push({ pathname: '/sent/[id]', params: { id: created.report_id, files: JSON.stringify(Object.values(files)) } });
+      // The next report asks the phone for a fresh position.
+      setStatus('locating');
+      draft.reset();
+      router.push({ pathname: '/sent/[id]', params: { id: created.report_id } });
     } catch (caught) {
+      if (expired(caught)) return;
       setError(caught instanceof ApiError ? caught.message : '신고를 보내지 못했어요. 다시 눌러 주세요.');
     } finally {
       setBusy(false);
@@ -174,7 +182,7 @@ export default function Report() {
                 <Text style={[type.field, { color: color.ink }]}>함께 보낼 자료</Text>
                 <Text style={[type.nav, { color: color.inkSoft }]}>필요한 것만 눌러서 찍어요</Text>
               </View>
-              <AttachmentPicker kinds={buttons} files={files} onChange={setFiles} />
+              <AttachmentPicker kinds={buttons} files={files} onChange={setFiles} onRecording={setRecording} />
             </View>
           ) : (
             <Note icon={TriangleAlert}>

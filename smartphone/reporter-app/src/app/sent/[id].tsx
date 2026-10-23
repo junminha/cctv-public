@@ -9,6 +9,7 @@ import type { Captured } from '@/components/AttachmentPicker';
 import { Button, Card, Rings, styles as ui } from '@/components/ui';
 import { shortId, when } from '@/geo';
 import { useSession } from '@/session';
+import { forgetUploads, queuedUploads } from '@/uploads';
 import { color, radius, type } from '@/theme';
 
 type State = 'waiting' | 'uploading' | 'done' | 'failed';
@@ -16,22 +17,16 @@ type Item = Captured & { state: State; progress: number; error?: string };
 
 const ICON = { photo: Camera, audio: Mic, video: Video };
 
-function parse(raw: string | undefined): Captured[] {
-  try {
-    return raw ? (JSON.parse(raw) as Captured[]) : [];
-  } catch {
-    return [];
-  }
-}
-
 // The report is already received; this screen only uploads what was captured before sending.
 export default function Sent() {
   const insets = useSafeAreaInsets();
-  const { token } = useSession();
-  const { id, files, more } = useLocalSearchParams<{ id: string; files?: string; more?: string }>();
-  const [items, setItems] = useState<Item[]>(() => parse(files).map((file) => ({ ...file, state: 'waiting', progress: 0 })));
+  const { token, expired } = useSession();
+  const { id, more } = useLocalSearchParams<{ id: string; more?: string }>();
+  const [items, setItems] = useState<Item[]>(() => queuedUploads(id).map((file) => ({ ...file, state: 'waiting', progress: 0 })));
   const [sentAt] = useState(() => new Date().toISOString());
   const busy = useRef(false);
+  // Once this screen closes the files must not be uploaded a second time.
+  useEffect(() => () => forgetUploads(id), [id]);
 
   const patch = useCallback((index: number, changes: Partial<Item>) => {
     setItems((current) => current.map((item, i) => (i === index ? { ...item, ...changes } : item)));
@@ -43,15 +38,19 @@ export default function Sent() {
     if (index < 0 || busy.current || !token) return;
     const item = items[index];
     busy.current = true;
+    queueMicrotask(() => patch(index, { state: 'uploading', error: undefined }));
     uploadAttachment(token, id, item, (progress) => patch(index, { state: 'uploading', progress, error: undefined }))
       .then(() => patch(index, { state: 'done', progress: 1 }))
-      .catch((caught) => patch(index, { state: 'failed', error: caught instanceof ApiError ? caught.message : '보내지 못했어요.' }))
+      .catch((caught) => {
+        if (expired(caught)) return;
+        patch(index, { state: 'failed', error: caught instanceof ApiError ? caught.message : '보내지 못했어요.' });
+      })
       .finally(() => {
         busy.current = false;
         // Wake the effect for the next waiting item.
         patch(index, {});
       });
-  }, [id, items, patch, token]);
+  }, [expired, id, items, patch, token]);
 
   const pending = items.some((item) => item.state === 'waiting' || item.state === 'uploading');
 

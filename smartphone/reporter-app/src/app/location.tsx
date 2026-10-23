@@ -28,7 +28,8 @@ export default function LocationEditor() {
   }, []);
 
   async function backToGps() {
-    const gps = draft.gps ?? (await locate());
+    // Always a fresh fix: the user may have moved since the report screen opened.
+    const gps = await locate();
     if (typeof gps === 'string') return;
     draft.setGps(gps);
     setTarget({ latitude: gps.latitude, longitude: gps.longitude });

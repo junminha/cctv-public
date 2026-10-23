@@ -12,7 +12,7 @@ import { color, type } from '@/theme';
 
 export default function MyReports() {
   const insets = useSafeAreaInsets();
-  const { token } = useSession();
+  const { token, expired } = useSession();
   const [rows, setRows] = useState<ReportView[] | null>(null);
   const [labels, setLabels] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
@@ -26,9 +26,10 @@ export default function MyReports() {
       setLabels(saved);
       setError(null);
     } catch (caught) {
+      if (expired(caught)) return;
       setError(caught instanceof ApiError ? caught.message : '신고 목록을 불러오지 못했어요.');
     }
-  }, [token]);
+  }, [expired, token]);
 
   // Refresh while visible so the stage moves without pulling.
   useFocusEffect(
