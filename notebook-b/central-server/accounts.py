@@ -16,7 +16,7 @@ from models import utc
 
 SCRYPT = {'n': 2 ** 14, 'r': 8, 'p': 1}
 LOGIN_FAILURES, LOGIN_WINDOW = 5, 600
-SIGNUPS, SIGNUP_WINDOW = 10, 3600
+SIGNUPS, SIGNUP_WINDOW = 30, 3600  # visitors may share one venue Wi-Fi address
 
 
 def hash_password(password):

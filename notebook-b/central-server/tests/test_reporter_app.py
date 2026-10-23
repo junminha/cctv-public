@@ -142,3 +142,14 @@ def test_voice_classifies_location_only_report_and_photo_is_analyzed(system):  #
     # The citizen sees status only, never the analysis.
     mine = client.get(f'/api/v1/reports/{report_id}', headers=auth(token)).json()
     assert 'analysis' not in mine and len(mine['attachments']) == 2
+
+
+def test_rate_limits_use_the_forwarded_caller_address(client):  # noqa: F811
+    signup(client)
+    bad = {'username': 'busansafe01', 'password': 'not-it-at-all'}
+    for _ in range(5):
+        client.post('/api/v1/auth/login', json={**bad, 'username': f'ghost{_}user'}, headers={'X-Forwarded-For': '203.0.113.7'})
+    # That caller is blocked; another citizen behind the same proxy is not.
+    good = {'username': 'busansafe01', 'password': PASSWORD}
+    assert client.post('/api/v1/auth/login', json=good, headers={'X-Forwarded-For': '203.0.113.7'}).status_code == 429
+    assert client.post('/api/v1/auth/login', json=good, headers={'X-Forwarded-For': '198.51.100.9'}).status_code == 200

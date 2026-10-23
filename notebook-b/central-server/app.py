@@ -133,7 +133,11 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
                 'demo_camera_ids': list(DEMO_CAMERA_IDS)}
 
     def client_address(request):
-        return request.client.host if request.client else 'unknown'
+        # B listens on loopback only, so outside callers arrive through the local Tailscale Funnel
+        # proxy, which replaces X-Forwarded-For with the caller's address. Without it every
+        # citizen would share the proxy's address and one person's failures would lock out all.
+        forwarded = request.headers.get('x-forwarded-for', '').split(',')[-1].strip()
+        return forwarded or (request.client.host if request.client else 'unknown')
 
     @app.post('/api/v1/auth/signup', status_code=201)
     def signup(payload: CredentialsInput, request: Request):
