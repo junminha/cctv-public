@@ -298,3 +298,21 @@ def test_latency_is_measured_from_the_analysis_request(system):
     detail_created = client.get(f'/api/v1/admin/reports/{report_id}', headers=auth(ADMIN)).json()['created_at']
     assert analysis['requested_at'] > detail_created
     assert analysis['latency_seconds'] < analysis['processing_seconds'] + 1.5
+
+
+def test_analysis_guides_the_radius_cctv_and_recommends_a_response(system):
+    client, _, _ = system
+    report_id = report(client)
+    nearby = client.get(f'/api/v1/admin/reports/{report_id}/nearby', headers=auth(ADMIN))
+    assert nearby.status_code == 200
+    assert nearby.json()['webcams']['total'] == 3 and nearby.json()['radius_m'] == 100
+    assert client.get(f'/api/v1/admin/reports/{report_id}/nearby', headers=auth(REPORTER)).status_code == 403
+    analysis = analyze(client, report_id)['analysis']
+    assert analysis['nearby']['webcams']['total'] == 3
+    assert {row['id'] for row in analysis['nearby']['webcams']['cameras']} == {'cam-01', 'cam-02', 'cam-03'}
+    assert analysis['nearby']['public']['purposes'] in ({}, {'생활방범': analysis['nearby']['public']['devices']})
+    best = analysis['best_camera']['video']
+    assert best['camera_id'] == 'cam-02' and best['latitude'] == PLACES['cam-02'][0]
+    plan = analysis['response_plan']
+    assert plan['priority'] == 'urgent' and '119' in plan['steps'][0]['action']
+    assert any('cam-02 근거 프레임' in step['action'] for step in plan['steps'])

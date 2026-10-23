@@ -14,6 +14,7 @@ import time
 
 from adapter import AdapterError
 from clips import download_export, ranges_cover
+import guidance
 from media import capture_live
 from models import DEMO_CAMERA_IDS, AnalyzeInput, PreserveInput, utc
 from vision import VisionUnavailable
@@ -69,6 +70,11 @@ class Pipeline:
             result['warnings'].append(error)
             result.setdefault('summary', self.intelligence.local_summary(
                 {**report, 'incident_type': result.get('classification', {}).get('incident_type', 'OTHER')}, []))
+        try:
+            result['best_camera'] = guidance.best_camera(result)
+            result['response_plan'] = guidance.plan(report, result)
+        except Exception as exc:  # noqa: BLE001
+            result['warnings'].append(f'대응 방안 추천 실패({type(exc).__name__})')
         result['finished_at'] = utc()
         result['processing_seconds'] = round(time.monotonic() - started, 3)
         result['requested_at'] = job.get('requested_at') or report['created_at']
@@ -96,6 +102,10 @@ class Pipeline:
         candidates = self.store.candidates(report)
         result['candidates'] = [{'camera_id': row['id'], 'distance_m': row['distance_m'], 'zone': row.get('zone')}
                                 for row in candidates]
+        try:
+            result['nearby'] = guidance.nearby(report, incident, classification.get('keywords'), candidates)
+        except Exception as exc:  # noqa: BLE001 - the radius guide must not cost the video analysis
+            result['warnings'].append(f'반경 CCTV 안내 실패({type(exc).__name__})')
         if not candidates:
             result['outcome'] = 'CAMERA_UNAVAILABLE' if result['warnings'] else 'NO_CAMERA_IN_RANGE'
             result['summary'] = self._summary(report, incident, [], images, transcripts, result)

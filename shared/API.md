@@ -224,3 +224,25 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 | PUT | `/api/v1/admin/reports/{id}/radius` | 관리자, `{radius_m}`(1~5000). 신고의 검색 반경을 바꾸고 `radius_changed` 이벤트·`report_radius_changed` 감사를 남긴다 |
 
 - 후보 카메라(`candidates`)는 저장된 반경으로 다시 계산된다. 이미 끝난 분석 결과의 순위는 다시 분석해야 바뀐다.
+
+## B 반경 CCTV 안내·대응 방안 추천 (v0.5)
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| GET | `/api/v1/admin/reports/{id}/nearby` | 관리자, 신고의 현재 반경 안 CCTV 안내. 분석 전에도 계산한다 |
+
+- 응답 `nearby`: `radius_m`, `center{latitude,longitude}`, `location_kind`,
+  `webcams{total,cameras[{id,name,zone,latitude,longitude,distance_m}]}` (영상 AI 후보, 기존 candidates 규칙),
+  `public{devices,sites,purposes{},places{},recommended[],source,note}` (공공 CCTV, 위치정보만).
+- 공공 CCTV는 같은 좌표의 장비를 설치 좌표 1곳(`sites`)으로 묶는다. `recommended[]`(최대 5곳):
+  `id,name,district,purpose,latitude,longitude,distance_m,device_count,place,score,reasons[]`.
+  `purpose`는 원자료 `장비종류` 그대로(현재 부산 자료는 모두 `생활방범`). `place`는 시설명칭에서 추정한 장소 단서
+  (도로·교차로, 버스정류장, 주차장, 학교·어린이보호, 공원·산책로, 시장·상가, 주거지 골목, 없음=null)이며 확인된 용도가 아니다.
+- 공공 CCTV 적합도(위치정보 기준, 영상 미분석): `0.55·근접 + 0.30·사건유형-장소 적합 + 0.15·신고문 지명 일치`.
+  공공 CCTV 영상은 계속 접근·분석하지 않는다. 열람이 필요하면 관할 기관 정식 절차를 안내만 한다.
+- 분석 결과 `analysis`에 추가: `nearby`(분석 시점 위 응답), `best_camera{video,public,note}`,
+  `response_plan{priority(urgent/high/normal),priority_label,steps[{action,reason}],contacts[],cautions[],source}`.
+  `video`는 집중 분석에서 관련 장면 후보가 나온 웹캠(없으면 null), `public`은 적합도 1위 공공 CCTV 설치 좌표.
+- 대응 방안은 사건 유형·분석 결과·반경 CCTV로 만든 로컬 규칙(`source=local_rules`)이다. OpenAI 요약이 있으면
+  그 `recommended_next_step`을 `AI 요약 제안` 단계로 덧붙인다. 생명·신체 위험(쓰러짐 의심)은 AI 결과와 관계없이
+  119 신고 안내를 첫 단계로 둔다. 추천은 참고용이며 출동·조치 결정은 담당자가 한다.

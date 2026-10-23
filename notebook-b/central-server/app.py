@@ -23,7 +23,8 @@ from adapter import Adapter, AdapterError
 from attachments import LIMITS, Attachments, sniff
 from clips import Clips
 from exports import KST, report_package, reports_csv
-from intelligence import Intelligence
+import guidance
+from intelligence import Intelligence, local_classification
 from media import snapshot as capture_snapshot
 from models import (AnalyzeInput, CameraId, CredentialsInput, DEMO_CAMERA_IDS, LocationInput, PasswordResetInput,
                     PreserveInput, RadiusInput, ReportInput, ReviewInput, Username, UtcDatetime, utc)
@@ -465,6 +466,17 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
         report = find_report(report_id)
         return {'report_id': report_id, 'selection': 'distance_candidates_only',
                 'cameras': app.state.store.candidates(report)}
+
+    @app.get('/api/v1/admin/reports/{report_id}/nearby', dependencies=[Depends(admin)])
+    def nearby(report_id: str):
+        detail = app.state.store.detail(report_id)
+        if detail is None:
+            raise HTTPException(404, 'Report not found')
+        # Reuse the analysed classification; before any analysis fall back to keyword rules.
+        classification = ((detail.get('analysis') or {}).get('classification')
+                          or local_classification(detail.get('description', ''), detail.get('details', '')))
+        return guidance.nearby(detail, classification['incident_type'], classification.get('keywords'),
+                               app.state.store.candidates(detail))
 
     @app.get('/api/v1/admin/recordings', dependencies=[Depends(admin)])
     def recordings(camera_id: CameraId, start: UtcDatetime, end: UtcDatetime):
