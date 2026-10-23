@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api, bPath, type AnalysisCamera, type AnalyzeParams, type Camera, type Clip, type ReportDetail, type ReportSummary } from "@/lib/api";
 import { INCIDENT, kst, kstTime, OUTCOME, shortId, sourceLabel, sourceLabelAI, STAGES } from "@/lib/labels";
+import { ReportGuidance } from "./report-guidance";
 
 const DEFAULTS: AnalyzeParams = { mode: "selective", source: "live", duration: 10, sample_fps: 1, focus_fps: 3, top_k: 1 };
 
@@ -95,6 +96,8 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
   const analysis = detail.analysis;
   const summary = analysis?.summary;
   const running = live.job.state === "running" || (live.job.state === "queued" && !!live.job.params);
+  const lastRun = detail.events.map((event) => event.type).lastIndexOf("analysis_requested");
+  const guidanceAnalysis = analysis && !running && (lastRun < 0 || analysis.started_at >= detail.events[lastRun].created_at) ? analysis : null;
   const outcome = live.job.state === "completed" || live.job.state === "failed" ? OUTCOME[live.job.stage] : null;
   const [params, setParams] = useState<AnalyzeParams>(detail.job.params ?? DEFAULTS);
   const [note, setNote] = useState("");
@@ -200,6 +203,8 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
           <ul className="mt-2 space-y-0.5 text-xs text-amber">{analysis.warnings.map((warning) => <li key={warning}>· {warning}</li>)}</ul>
         ) : null}
       </div>
+
+      <ReportGuidance report={detail} analysis={guidanceAnalysis} />
 
       {analysis && analysis.cameras.length > 0 && (
         <Section title="후보 카메라" aside={`${analysis.mode === "selective" ? "선택 분석" : analysis.mode === "all" ? "전체 분석" : "비교 실험"} · ${analysis.params.source === "live" ? "실시간" : "녹화"} ${analysis.params.duration}초`}>

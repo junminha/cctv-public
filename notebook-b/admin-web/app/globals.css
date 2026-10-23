@@ -164,8 +164,8 @@ body {
 .wall .cursor { display: inline-block; width: .55em; height: 1.05em; vertical-align: -.15em; background: var(--w-beacon); animation: wall-blink 1s steps(2, start) infinite; }
 
 /* Analysis record: ruled key/value rows, then each input with its fixed-width code. */
-.wall .sheet section + section { border-top: 1px solid var(--w-line); }
-.wall .sheet section { padding-bottom: .45em; }
+.wall .sheet > section + section { border-top: 1px solid var(--w-line); }
+.wall .sheet > section { padding-bottom: .45em; }
 .wall .sheet-title { font-size: .8em; font-weight: 700; color: var(--w-soft); padding: .75em .8em .3em; }
 .wall .sheet-row { display: grid; grid-template-columns: 5.6em minmax(0, 1fr); gap: .6em; padding: .16em .8em; }
 .wall .sheet-note { padding: .16em .8em; }
@@ -175,6 +175,40 @@ body {
 .wall .evidence { margin-top: .3em; border: 1px solid var(--w-line); }
 .wall .evidence img { display: block; width: 100%; aspect-ratio: 16 / 9; object-fit: cover; background: var(--chart-deep); }
 .wall .evidence figcaption { padding: .2em .45em; font-size: .85em; border-top: 2px solid var(--w-beacon); }
+
+/* Shared radius metadata and responder guidance in report details and the log sheet. */
+.guidance { min-width: 0; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+.guidance-section { border-top: 1px solid var(--rule); padding: 16px 20px; }
+.guidance-title { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; margin-bottom: 8px; font-size: 14px; font-weight: 700; }
+.guidance-meta, .guidance-note { color: var(--ink-soft); font-weight: 400; }
+.guidance-note { margin-top: 4px; }
+.guidance-title .guidance-meta { font-size: 12px; }
+.guidance-counts { display: flex; flex-wrap: wrap; gap: 4px 16px; font-variant-numeric: tabular-nums; }
+.guidance-block { display: block; }
+.guidance-disclosure { margin-top: 12px; }
+.guidance-disclosure summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
+.guidance-list > li, .guidance-best { border-left: 2px solid var(--tide); margin-top: 8px; padding-left: 8px; }
+.guidance-table { width: 100%; table-layout: fixed; margin-top: 6px; font-size: inherit; }
+.guidance-table th { text-align: left; color: var(--ink-soft); font-weight: 500; }
+.guidance-table th:first-child { width: 68%; }
+.guidance-table th, .guidance-table td { padding: 6px 4px; vertical-align: top; border-bottom: 1px solid var(--rule); }
+.guidance-table td:not(:first-child) { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.guidance-reasons { margin-top: 4px; padding-left: 14px; list-style: disc; color: var(--ink-soft); }
+.guidance-priority { border: 1px solid currentColor; padding: 0 6px; font-size: 12px; }
+.guidance-urgent { color: var(--signal); }
+.guidance-high { color: var(--amber); }
+.guidance-normal { color: var(--tide); }
+.guidance-steps { list-style: decimal; padding-left: 20px; }
+.guidance-steps > li + li { margin-top: 10px; }
+.guidance-contacts { margin-top: 12px; }
+.guidance-cautions { margin-top: 10px; border-left: 2px solid var(--amber); padding-left: 8px; color: var(--ink-soft); }
+.guidance-cautions > li + li { margin-top: 4px; }
+.guidance-retry { margin-top: 8px; min-height: 36px; border: 1px solid var(--rule); padding: 4px 12px; cursor: pointer; }
+.wall .guidance-compact { font-size: .85em; }
+.wall .guidance-section { padding: .6em .95em; }
+.wall .guidance-title { font-size: 1em; }
+.wall .guidance-title .guidance-meta, .wall .guidance-priority { font-size: .9em; }
+.wall .guidance + section { border-top: 1px solid var(--w-line); }
 
 @media (prefers-reduced-motion: reduce) {
   .wall .live-mark, .wall .cursor { animation: none; }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, bPath, type Analysis, type ReportDetail, type ReportSummary, type VisionResult } from "@/lib/api";
 import { INCIDENT, OUTCOME, STAGES, jobLabel, kstTime, shortId, sourceLabelAI } from "@/lib/labels";
 import { useLive } from "@/lib/live";
+import { ReportGuidance } from "./report-guidance";
 
 const STAGE_TAG: Record<string, string> = {
   RECEIVED: "RECEIVED",
@@ -215,6 +216,8 @@ function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: Rep
         )}
       </section>
 
+      <ReportGuidance key={report.report_id} report={report} analysis={pending ? null : fresh} compact />
+
       <section>
         <h3 className="sheet-title">사용한 모델</h3>
         {fresh ? (
@@ -350,7 +353,7 @@ export function LiveWall() {
   const index = stageIndex(focus);
   const running = focus?.job.state === "running";
   const failed = focus?.job.state === "failed";
-  const focusKey = focus ? `${focus.report_id}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}` : "";
+  const focusKey = focus ? `${focus.report_id}:${focus.radius_m}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}` : "";
 
   useEffect(() => {
     const tick = () => setNow(Date.now());

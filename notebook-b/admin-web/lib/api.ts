@@ -106,6 +106,55 @@ export type Benchmark = {
   note: string;
 };
 
+export type PublicRecommendation = {
+  id: string;
+  name: string;
+  district: string;
+  purpose: string;
+  latitude: number;
+  longitude: number;
+  distance_m: number;
+  device_count: number;
+  place: string | null;
+  score: number;
+  reasons: string[];
+};
+
+export type Nearby = {
+  radius_m: number;
+  center: { latitude: number; longitude: number };
+  location_kind: "real" | "demo";
+  webcams: {
+    total: number;
+    cameras: { id: string; name: string | null; zone: string | null; latitude: number | null; longitude: number | null; distance_m: number }[];
+  };
+  public: {
+    devices: number;
+    sites: number;
+    purposes: Record<string, number>;
+    places: Record<string, number>;
+    recommended: PublicRecommendation[];
+    source: string;
+    note: string;
+  };
+};
+
+export type BestCamera = {
+  video: { camera_id: string; name: string | null; zone: string | null; latitude: number | null; longitude: number | null;
+    distance_m: number | null; event_score: number | null; reason: string } | null;
+  public: PublicRecommendation | null;
+  note: string;
+};
+
+export type ResponsePlan = {
+  priority: "urgent" | "high" | "normal";
+  priority_label: string;
+  steps: { action: string; reason: string }[];
+  contacts: string[];
+  cautions: string[];
+  source: string;
+};
+
 export type Analysis = {
   report_id: string;
   mode: AnalyzeParams["mode"];
@@ -123,6 +172,9 @@ export type Analysis = {
   warnings: string[];
   processing_seconds?: number;
   latency_seconds?: number;
+  nearby?: Nearby;
+  best_camera?: BestCamera;
+  response_plan?: ResponsePlan;
 };
 
 export type Attachment = {
