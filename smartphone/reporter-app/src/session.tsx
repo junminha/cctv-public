@@ -10,6 +10,7 @@ export type Prefs = {
   username: string | null;
   setupDone: boolean;
   consent: boolean;
+  // Which capture buttons the report screen shows.
   defaults: Record<AttachmentKind, boolean>;
 };
 

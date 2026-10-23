@@ -1,13 +1,14 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { Camera, ChevronDown, ChevronUp, MapPin, Mic, Phone, SlidersHorizontal, TriangleAlert, Video } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, MapPin, Phone, SlidersHorizontal, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ApiError, LOCATION_KIND, reports, type AttachmentKind, type NewReport } from '@/api';
+import { ApiError, LOCATION_KIND, reports, type NewReport } from '@/api';
+import { AttachmentPicker, KINDS, type CapturedSet } from '@/components/AttachmentPicker';
 import ChartMap from '@/components/ChartMap';
-import { Button, Chip, Field, Note, Tile, styles as ui } from '@/components/ui';
+import { Button, Chip, Field, Note, styles as ui } from '@/components/ui';
 import { useDraft } from '@/draft';
 import { RADIUS_M, VENUE, addressOf, coords, locate, rememberLabel } from '@/geo';
 import { useSession } from '@/session';
@@ -19,11 +20,6 @@ const WHEN = [
   ['30분 전', 30],
   ['1시간 넘게', 60],
 ] as const;
-const KINDS: { key: AttachmentKind; title: string; sub: string; Icon: typeof Camera }[] = [
-  { key: 'photo', title: '사진', sub: '보낸 뒤 촬영', Icon: Camera },
-  { key: 'audio', title: '녹음', sub: '보낸 뒤 녹음', Icon: Mic },
-  { key: 'video', title: '짧은 영상', sub: '최대 30초', Icon: Video },
-];
 const HERO = 330;
 const minutesBefore = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
 
@@ -36,9 +32,8 @@ export default function Report() {
   const [description, setDescription] = useState('');
   const [details, setDetails] = useState('');
   const [minutesAgo, setMinutesAgo] = useState<number | null>(null);
-  // Per-report changes on top of the defaults chosen in setup/settings.
-  const [overrides, setOverrides] = useState<Partial<Record<AttachmentKind, boolean>>>({});
-  const checked = { ...prefs.defaults, ...overrides };
+  // Taken on this screen before sending; only what the reporter chose to capture.
+  const [files, setFiles] = useState<CapturedSet>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -59,7 +54,9 @@ export default function Report() {
     };
   }, [point, setGps, setPoint]);
 
-  const attach = prefs.consent ? KINDS.filter((kind) => checked[kind.key]) : [];
+  // Settings choose which capture buttons appear on this screen.
+  const buttons = prefs.consent ? KINDS.filter((kind) => prefs.defaults[kind.key]).map((kind) => kind.key) : [];
+  const attached = KINDS.filter((kind) => files[kind.key]);
   const place = draft.point ? draft.address ?? coords(draft.point) : null;
   const locationLine =
     status === 'locating' && !draft.point
@@ -93,9 +90,9 @@ export default function Report() {
       setDescription('');
       setDetails('');
       setMinutesAgo(null);
-      setOverrides({});
+      setFiles({});
       setOpen(false);
-      router.push({ pathname: '/sent/[id]', params: { id: created.report_id, capture: attach.map((kind) => kind.key).join(',') } });
+      router.push({ pathname: '/sent/[id]', params: { id: created.report_id, files: JSON.stringify(Object.values(files)) } });
     } catch (caught) {
       setError(caught instanceof ApiError ? caught.message : '신고를 보내지 못했어요. 다시 눌러 주세요.');
     } finally {
@@ -171,20 +168,18 @@ export default function Report() {
             )}
           </View>
 
-          {prefs.consent ? (
+          {buttons.length > 0 ? (
             <View style={{ gap: 10 }}>
               <View style={ui.row}>
                 <Text style={[type.field, { color: color.ink }]}>함께 보낼 자료</Text>
-                <Text style={[type.nav, { color: color.inkSoft }]}>미리 정한 항목이 체크돼 있어요</Text>
+                <Text style={[type.nav, { color: color.inkSoft }]}>필요한 것만 눌러서 찍어요</Text>
               </View>
-              <View style={[ui.row, { gap: 11 }]}>
-                {KINDS.map(({ key, title, sub, Icon }) => (
-                  <Tile key={key} icon={Icon} title={title} sub={sub} on={checked[key]} onPress={() => setOverrides({ ...overrides, [key]: !checked[key] })} />
-                ))}
-              </View>
+              <AttachmentPicker kinds={buttons} files={files} onChange={setFiles} />
             </View>
           ) : (
-            <Note icon={TriangleAlert}>첨부 자료 사용에 동의하지 않아 위치와 적은 내용만 보내요. 설정에서 바꿀 수 있어요.</Note>
+            <Note icon={TriangleAlert}>
+              {prefs.consent ? '첨부 버튼이 모두 꺼져 있어요. 설정에서 켤 수 있어요.' : '첨부 자료 사용에 동의하지 않아 위치와 적은 내용만 보내요. 설정에서 바꿀 수 있어요.'}
+            </Note>
           )}
         </View>
       </ScrollView>
@@ -192,7 +187,7 @@ export default function Report() {
       <View style={styles.dock}>
         <View style={[ui.row, { gap: 6 }]}>
           <Text style={[type.nav, { color: color.inkSoft, flex: 1 }]}>보낼 내용</Text>
-          {[{ key: 'location', title: '위치', Icon: MapPin }, ...attach].map(({ key, title, Icon }) => (
+          {[{ key: 'location', title: '위치', Icon: MapPin }, ...attached].map(({ key, title, Icon }) => (
             <View key={key} style={styles.manifest}>
               <Icon size={14} color={color.beacon} />
               <Text style={[type.nav, { color: color.beacon }]}>{title}</Text>

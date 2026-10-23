@@ -36,10 +36,10 @@ export default function Setup() {
             </View>
           ))}
         </Card>
-        <Text style={[type.field, { color: color.ink }]}>신고할 때 미리 체크해 둘 자료</Text>
+        <Text style={[type.field, { color: color.ink }]}>신고 화면에 둘 첨부 버튼</Text>
         <View style={[styles.row, { gap: 11 }]}>
-          <Tile icon={Camera} title="사진" sub="보낸 뒤 촬영" on={defaults.photo} onPress={() => toggle('photo')} />
-          <Tile icon={Mic} title="녹음" sub="보낸 뒤 녹음" on={defaults.audio} onPress={() => toggle('audio')} />
+          <Tile icon={Camera} title="사진" sub="눌러서 촬영" on={defaults.photo} onPress={() => toggle('photo')} />
+          <Tile icon={Mic} title="녹음" sub="눌러서 녹음" on={defaults.audio} onPress={() => toggle('audio')} />
           <Tile icon={Video} title="짧은 영상" sub="최대 30초" on={defaults.video} onPress={() => toggle('video')} />
         </View>
         <View style={{ flex: 1, minHeight: 24 }} />

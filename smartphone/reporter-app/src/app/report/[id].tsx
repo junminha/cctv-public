@@ -1,11 +1,12 @@
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, Camera, Mic, TriangleAlert, Video } from 'lucide-react-native';
+import { ArrowLeft, TriangleAlert } from 'lucide-react-native';
 import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ApiError, STEP_LABEL, attachmentSummary, reports, stepOf, type AttachmentKind, type ReportView, type Step } from '@/api';
-import { Button, Card, Note, Tile, styles as ui } from '@/components/ui';
+import { ApiError, STEP_LABEL, attachmentSummary, reports, stepOf, type ReportView, type Step } from '@/api';
+import { AttachmentPicker, type CapturedSet } from '@/components/AttachmentPicker';
+import { Button, Card, Note, styles as ui } from '@/components/ui';
 import { coords, reportLabels, shortId, when } from '@/geo';
 import { useSession } from '@/session';
 import { color, type } from '@/theme';
@@ -20,7 +21,7 @@ export default function ReportDetail() {
   const [label, setLabel] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
-  const [extra, setExtra] = useState<Record<AttachmentKind, boolean>>({ photo: true, audio: false, video: false });
+  const [extra, setExtra] = useState<CapturedSet>({});
 
   const load = useCallback(async () => {
     if (!token) return;
@@ -44,7 +45,7 @@ export default function ReportDetail() {
 
   const step = report ? stepOf(report.job) : 'received';
   const reached = STEPS.indexOf(step);
-  const chosen = (Object.keys(extra) as AttachmentKind[]).filter((kind) => extra[kind]);
+  const chosen = Object.values(extra);
 
   return (
     <View style={{ flex: 1, backgroundColor: color.paper, paddingTop: insets.top }}>
@@ -112,15 +113,15 @@ export default function ReportDetail() {
             {prefs.consent ? (
               picking ? (
                 <View style={{ gap: 12 }}>
-                  <View style={[ui.row, { gap: 11 }]}>
-                    <Tile icon={Camera} title="사진" sub="촬영" on={extra.photo} onPress={() => setExtra({ ...extra, photo: !extra.photo })} />
-                    <Tile icon={Mic} title="녹음" sub="녹음" on={extra.audio} onPress={() => setExtra({ ...extra, audio: !extra.audio })} />
-                    <Tile icon={Video} title="짧은 영상" sub="최대 30초" on={extra.video} onPress={() => setExtra({ ...extra, video: !extra.video })} />
-                  </View>
+                  <AttachmentPicker kinds={['photo', 'audio', 'video']} files={extra} onChange={setExtra} />
                   <Button
-                    label="고른 자료 보내기"
+                    label="찍은 자료 보내기"
                     disabled={!chosen.length}
-                    onPress={() => router.push({ pathname: '/sent/[id]', params: { id, capture: chosen.join(','), more: '1' } })}
+                    onPress={() => {
+                      setExtra({});
+                      setPicking(false);
+                      router.push({ pathname: '/sent/[id]', params: { id, files: JSON.stringify(chosen), more: '1' } });
+                    }}
                   />
                 </View>
               ) : (

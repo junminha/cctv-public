@@ -1,115 +1,59 @@
-import { AudioModule, RecordingPresets, setAudioModeAsync, useAudioRecorder, useAudioRecorderState } from 'expo-audio';
-import * as ImagePicker from 'expo-image-picker';
 import { router, useLocalSearchParams } from 'expo-router';
 import { Camera, Check, Mic, Video } from 'lucide-react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ApiError, uploadAttachment, type AttachmentKind } from '@/api';
+import { ApiError, uploadAttachment } from '@/api';
+import type { Captured } from '@/components/AttachmentPicker';
 import { Button, Card, Rings, styles as ui } from '@/components/ui';
 import { shortId, when } from '@/geo';
 import { useSession } from '@/session';
 import { color, radius, type } from '@/theme';
 
-type State = 'waiting' | 'capturing' | 'recording' | 'uploading' | 'done' | 'skipped' | 'failed';
-type File = { uri: string; name: string; type: string };
-type Item = { kind: AttachmentKind; state: State; progress: number; label: string; file?: File; error?: string };
+type State = 'waiting' | 'uploading' | 'done' | 'failed';
+type Item = Captured & { state: State; progress: number; error?: string };
 
-const NAME: Record<AttachmentKind, string> = { photo: '사진', audio: '녹음', video: '짧은 영상' };
 const ICON = { photo: Camera, audio: Mic, video: Video };
-const MAX_AUDIO_MS = 60_000;
-const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}`;
 
+function parse(raw: string | undefined): Captured[] {
+  try {
+    return raw ? (JSON.parse(raw) as Captured[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+// The report is already received; this screen only uploads what was captured before sending.
 export default function Sent() {
   const insets = useSafeAreaInsets();
   const { token } = useSession();
-  const { id, capture = '', more } = useLocalSearchParams<{ id: string; capture?: string; more?: string }>();
-  const [items, setItems] = useState<Item[]>(() =>
-    capture
-      .split(',')
-      .filter((kind): kind is AttachmentKind => kind in NAME)
-      .map((kind) => ({ kind, state: 'waiting', progress: 0, label: NAME[kind] })),
-  );
+  const { id, files, more } = useLocalSearchParams<{ id: string; files?: string; more?: string }>();
+  const [items, setItems] = useState<Item[]>(() => parse(files).map((file) => ({ ...file, state: 'waiting', progress: 0 })));
   const [sentAt] = useState(() => new Date().toISOString());
   const busy = useRef(false);
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recording = useAudioRecorderState(recorder);
 
   const patch = useCallback((index: number, changes: Partial<Item>) => {
     setItems((current) => current.map((item, i) => (i === index ? { ...item, ...changes } : item)));
   }, []);
 
-  const upload = useCallback(
-    async (index: number, file: File) => {
-      if (!token) return;
-      patch(index, { state: 'uploading', progress: 0, file, error: undefined });
-      try {
-        await uploadAttachment(token, id, file, (progress) => patch(index, { progress }));
-        patch(index, { state: 'done', progress: 1 });
-      } catch (caught) {
-        patch(index, { state: 'failed', error: caught instanceof ApiError ? caught.message : '보내지 못했어요.' });
-      }
-    },
-    [id, patch, token],
-  );
-
-  // Capture the checked items one at a time; the report itself is already received.
+  // One upload at a time keeps progress readable on a weak connection.
   useEffect(() => {
     const index = items.findIndex((item) => item.state === 'waiting');
-    if (index < 0 || busy.current || items.some((item) => item.state === 'capturing' || item.state === 'recording')) return;
+    if (index < 0 || busy.current || !token) return;
     const item = items[index];
     busy.current = true;
-    (async () => {
-      if (item.kind === 'audio') {
-        const permission = await AudioModule.requestRecordingPermissionsAsync();
-        if (!permission.granted) return patch(index, { state: 'skipped', error: '마이크 권한이 없어 녹음을 건너뛰었어요.' });
-        await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
-        return patch(index, { state: 'recording' });
-      }
-      patch(index, { state: 'capturing' });
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
-      if (!permission.granted) return patch(index, { state: 'skipped', error: '카메라 권한이 없어 건너뛰었어요.' });
-      const video = item.kind === 'video';
-      const result = await ImagePicker.launchCameraAsync({ mediaTypes: [video ? 'videos' : 'images'], quality: 0.8, videoMaxDuration: 30 });
-      if (result.canceled) return patch(index, { state: 'skipped' });
-      const asset = result.assets[0];
-      const label = video ? `영상 ${clock(asset.duration ?? 0)}` : '사진 1장';
-      patch(index, { label });
-      await upload(index, {
-        uri: asset.uri,
-        name: asset.fileName ?? (video ? 'video.mp4' : 'photo.jpg'),
-        type: asset.mimeType ?? (video ? 'video/mp4' : 'image/jpeg'),
+    uploadAttachment(token, id, item, (progress) => patch(index, { state: 'uploading', progress, error: undefined }))
+      .then(() => patch(index, { state: 'done', progress: 1 }))
+      .catch((caught) => patch(index, { state: 'failed', error: caught instanceof ApiError ? caught.message : '보내지 못했어요.' }))
+      .finally(() => {
+        busy.current = false;
+        // Wake the effect for the next waiting item.
+        patch(index, {});
       });
-    })().finally(() => {
-      busy.current = false;
-    });
-  }, [items, patch, upload]);
+  }, [id, items, patch, token]);
 
-  const recordingIndex = items.findIndex((item) => item.state === 'recording');
-
-  const startedAt = useRef(0);
-  const limit = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const finishRecording = useCallback(async () => {
-    if (recordingIndex < 0) return;
-    if (limit.current) clearTimeout(limit.current);
-    const duration = Date.now() - startedAt.current;
-    await recorder.stop();
-    if (!recorder.uri) return patch(recordingIndex, { state: 'failed', error: '녹음 파일을 찾지 못했어요.' });
-    patch(recordingIndex, { label: `녹음 ${clock(duration)}` });
-    await upload(recordingIndex, { uri: recorder.uri, name: 'voice.m4a', type: 'audio/mp4' });
-  }, [patch, recorder, recordingIndex, upload]);
-
-  async function startRecording() {
-    await recorder.prepareToRecordAsync();
-    recorder.record();
-    startedAt.current = Date.now();
-    // Keep phone recordings short; the analysis only needs the spoken description.
-    limit.current = setTimeout(finishRecording, MAX_AUDIO_MS);
-  }
-
-  const pending = items.some((item) => !['done', 'skipped', 'failed'].includes(item.state));
+  const pending = items.some((item) => item.state === 'waiting' || item.state === 'uploading');
 
   return (
     <View style={{ flex: 1, backgroundColor: color.night }}>
@@ -132,22 +76,18 @@ export default function Sent() {
       </View>
       <ScrollView style={styles.sheet} contentContainerStyle={{ gap: 14, padding: 24, paddingBottom: 28 + insets.bottom }}>
         <Text style={[type.body, { color: color.inkSoft }]}>
-          {more ? '보낸 자료는 이 신고에 더해지고 AI 분석에 함께 쓰여요.' : '위치는 담당자에게 전달됐어요. 체크한 자료를 이어서 보내면 AI 분석에 함께 쓰여요.'}
+          {more
+            ? '보낸 자료는 이 신고에 더해지고 AI 분석에 함께 쓰여요.'
+            : items.length
+              ? '위치는 담당자에게 전달됐어요. 찍은 자료를 이어서 보내고 있어요.'
+              : '위치가 담당자에게 전달됐어요. 진행 상황은 내 신고에서 볼 수 있어요.'}
         </Text>
         {items.length > 0 && (
           <Card style={{ gap: 14 }}>
             {items.map((item, index) => {
               const Icon = ICON[item.kind];
               const done = item.state === 'done';
-              const status = {
-                waiting: '대기',
-                capturing: '촬영 중',
-                recording: recording.isRecording ? `녹음 중 ${clock(recording.durationMillis)}` : '녹음 준비',
-                uploading: `보내는 중 ${Math.round(item.progress * 100)}%`,
-                done: '보냄',
-                skipped: '건너뜀',
-                failed: '실패',
-              }[item.state];
+              const status = { waiting: '대기', uploading: `보내는 중 ${Math.round(item.progress * 100)}%`, done: '보냄', failed: '실패' }[item.state];
               return (
                 <View key={item.kind} style={{ gap: 8 }}>
                   <View style={[ui.row, { gap: 10 }]}>
@@ -155,31 +95,13 @@ export default function Sent() {
                     <Text style={[type.body, { color: color.ink, flex: 1 }]}>{item.label}</Text>
                     <Text style={[type.field, { color: done ? color.tide : item.state === 'failed' ? color.alert : color.inkSoft }]}>{status}</Text>
                   </View>
-                  {(item.state === 'uploading' || done) && (
+                  {item.state !== 'failed' && (
                     <View style={styles.track}>
                       <View style={[styles.fill, { width: `${Math.max(4, item.progress * 100)}%` }]} />
                     </View>
                   )}
-                  {item.error && <Text style={[type.small, { color: item.state === 'failed' ? color.alert : color.inkSoft }]}>{item.error}</Text>}
-                  {item.state === 'failed' && item.file && <Button label="다시 보내기" variant="tonal" onPress={() => upload(index, item.file!)} />}
-                  {item.state === 'recording' && (
-                    <View style={{ gap: 8 }}>
-                      {recording.isRecording ? (
-                        <Button label="녹음 끝내고 보내기" onPress={finishRecording} />
-                      ) : (
-                        <Button label="녹음 시작" onPress={startRecording} />
-                      )}
-                      <Button
-                        label="녹음 건너뛰기"
-                        variant="secondary"
-                        onPress={async () => {
-                          if (limit.current) clearTimeout(limit.current);
-                          if (recording.isRecording) await recorder.stop();
-                          patch(index, { state: 'skipped' });
-                        }}
-                      />
-                    </View>
-                  )}
+                  {item.error && <Text style={[type.small, { color: color.alert }]}>{item.error}</Text>}
+                  {item.state === 'failed' && <Button label="다시 보내기" variant="tonal" onPress={() => patch(index, { state: 'waiting', progress: 0 })} />}
                 </View>
               );
             })}
