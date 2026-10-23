@@ -225,6 +225,22 @@ class Store:
                                     (limit, offset)).fetchall()
         return [self.report(row['id']) for row in rows]
 
+    def export_reports(self, start=None, end=None):
+        """Full details in intake order, optionally limited to [start, end) by intake time."""
+        with self.connect() as database:
+            rows = database.execute('SELECT id, created_at FROM reports ORDER BY created_at, id').fetchall()
+        # Compare parsed instants: stored ISO strings omit microseconds when they are zero.
+        def inside(created):
+            moment = datetime.fromisoformat(created.replace('Z', '+00:00'))
+            return (start is None or moment >= start) and (end is None or moment < end)
+        return [self.detail(row['id']) for row in rows if inside(row['created_at'])]
+
+    def audit_events(self, report_id):
+        with self.connect() as database:
+            rows = database.execute('SELECT * FROM audit_events WHERE report_id=? ORDER BY rowid',
+                                    (report_id,)).fetchall()
+        return [dict(row) for row in rows]
+
     def jobs(self, limit):
         with self.connect() as database:
             rows = database.execute('''SELECT jobs.* FROM jobs JOIN reports ON reports.id=jobs.report_id

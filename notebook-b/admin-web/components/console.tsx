@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { api, type ReportDetail } from "@/lib/api";
 import { useLive } from "@/lib/live";
-import { DemoReportForm } from "./demo-report-form";
 import { ReportPanel } from "./report-panel";
 import { ReportQueue } from "./report-queue";
 
@@ -17,8 +16,6 @@ export function Console() {
   const { snapshot, connection } = useLive();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<ReportDetail | null>(null);
-  const [picking, setPicking] = useState(false);
-  const [draft, setDraft] = useState<[number, number] | null>(null);
   const [showPublic, setShowPublic] = useState(true);
   const [publicCount, setPublicCount] = useState<{ shown: number; total: number } | null>(null);
   const [focus, setFocus] = useState<[number, number] | null>(null);
@@ -40,8 +37,6 @@ export function Console() {
 
   function select(reportId: string) {
     setSelectedId(reportId);
-    setPicking(false);
-    setDraft(null);
     const report = reports.find((row) => row.report_id === reportId);
     if (report) setFocus([report.latitude, report.longitude]);
   }
@@ -56,10 +51,6 @@ export function Console() {
           selectedId={selectedId}
           connection={connection}
           onSelect={select}
-          onNew={() => {
-            setPicking(true);
-            setSelectedId(null);
-          }}
         />
       </aside>
 
@@ -69,13 +60,11 @@ export function Console() {
           cameras={cameras}
           selected={selected}
           ranking={detail?.report_id === selectedId ? detail?.analysis?.cameras ?? [] : []}
-          draft={draft}
-          picking={picking}
+          draft={null}
+          picking={false}
           showPublic={showPublic}
           focus={focus}
-          onPick={(point) => {
-            setDraft(point);
-          }}
+          onPick={() => {}}
           onSelect={select}
           onPublicCount={setPublicCount}
         />
@@ -100,38 +89,17 @@ export function Console() {
             )}
           </div>
         </div>
-        <div className="pointer-events-none absolute inset-x-0 top-3 z-[500] flex justify-center">
-          {picking && !draft && (
-            <p className="pointer-events-auto rounded bg-ink px-3 py-2 text-sm text-white shadow">
-              지도에서 신고 지점을 누르세요
-              <button className="ml-3 underline" onClick={() => setPicking(false)}>취소</button>
-            </p>
-          )}
-        </div>
       </section>
 
       <aside className="order-3 border-rule bg-surface lg:min-h-0 lg:overflow-y-auto lg:border-l">
-        {picking && draft ? (
-          <DemoReportForm
-            point={draft}
-            onCancel={() => {
-              setDraft(null);
-              setPicking(false);
-            }}
-            onCreated={(reportId) => {
-              setDraft(null);
-              setPicking(false);
-              setSelectedId(reportId);
-            }}
-          />
-        ) : selected && detail && detail.report_id === selected.report_id ? (
+        {selected && detail && detail.report_id === selected.report_id ? (
           <ReportPanel detail={detail} live={selected} cameras={cameras} onChanged={refresh} />
         ) : (
           <div className="p-6 text-sm text-ink-soft">
             <p className="font-display text-2xl text-ink">신고를 선택하세요</p>
             <p className="mt-2">왼쪽 목록이나 지도의 주황 지점을 누르면 후보 카메라, 분석 근거, 요약이 여기에 표시됩니다.</p>
             <p className="mt-2">
-              새 시연은 <strong className="text-ink">모의 신고</strong>로 시작합니다. 시민 앱과 같은 접수·분석 경로를 사용합니다.
+              접수된 신고 전체는 왼쪽 위 <strong className="text-ink">CSV 내보내기</strong>로, 신고 1건의 증거 자료는 상세 화면의 <strong className="text-ink">증거 묶음 다운로드</strong>로 받을 수 있습니다.
             </p>
           </div>
         )}

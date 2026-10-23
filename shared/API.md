@@ -169,3 +169,17 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 - OpenAI: B `.env`의 `OPENAI_API_KEY`. 기본 모델 `gpt-6-luna`, 전사 `gpt-transcribe`(2026-10-22 공식 문서 기준
   `gpt-4.1-mini`·`gpt-4o-mini-transcribe`는 지원 종료 예정). 키 없음·실패 시 `source=local_*`과 경고로 처리한다.
 - Live 분석은 A stream API의 RTSP URL에 B 비밀 설정의 RTSP 계정을 넣어 FFmpeg가 TCP로 읽는다. 자격증명은 응답·DB에 저장하지 않는다.
+
+## B 신고 내보내기 (v0.3)
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| GET | `/api/v1/admin/exports/reports.csv?start=&end=` | 관리자, 접수 신고 전체 CSV. `start`/`end`(UTC ISO, 선택)는 접수 시각 [start, end) 필터. 감사 `reports_csv_exported` |
+| GET | `/api/v1/admin/reports/{id}/package.zip?media=true` | 관리자, 신고 1건 증거 묶음 ZIP. 감사 `report_package_exported` |
+
+- CSV: UTF-8 BOM, 시각은 KST 표기. 시민 입력이 `= + - @`, 탭, CR로 시작하면 앞에 `'`를 붙여 수식 실행을 막는다.
+  열: 신고 ID, 접수/발생 시각, 출처, 사건 유형, 내용, 좌표·위치 구분·반경, 분석 상태·단계·결과, 선정 카메라, 요약, 권장 조치, 첨부 수, 확인/종결 시각·담당자·메모.
+- ZIP: `report.json`(관리자 신고 상세), `clips.json`, `audit.json`(해당 신고 감사 기록, 이번 내보내기 포함), `manifest.json`.
+  `media=true`(기본)이면 `attachments/`, `clips/`(보존 영상), `analysis/`(근거 프레임·분석 클립 캐시)를 함께 넣는다.
+  `manifest.files[]`는 각 파일의 `bytes`, `sha256`을 담고, 첨부·보존 영상은 저장 시 기록한 해시와 비교한 `matches_recorded_sha256`을 추가한다.
+  파일이 없으면 실패 대신 `manifest.missing[]`에 적는다. 임시 ZIP은 `runtime/exports`에 만들고 응답 후 지운다.
