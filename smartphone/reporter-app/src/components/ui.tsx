@@ -57,7 +57,7 @@ export function Field({ label, optional, ...input }: { label: string; optional?:
       <TextInput
         placeholderTextColor={color.inkSoft}
         accessibilityLabel={label}
-        style={[styles.input, input.multiline && { minHeight: 88, textAlignVertical: 'top' }]}
+        style={[styles.input, input.multiline ? styles.inputMulti : styles.inputSingle]}
         {...input}
       />
     </View>
@@ -159,16 +159,20 @@ export const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   button: { borderRadius: radius.button, borderWidth: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
   bigLabel: { fontFamily: font.display, fontSize: 22, lineHeight: 28, letterSpacing: 0.4 },
+  // No lineHeight on inputs: on Android it pushes the text up and makes a one-line field scroll.
   input: {
-    ...type.body,
+    fontFamily: type.body.fontFamily,
+    fontSize: type.body.fontSize,
     color: color.ink,
     backgroundColor: color.surface,
     borderColor: color.rule,
     borderWidth: 1,
     borderRadius: radius.field,
     paddingHorizontal: 14,
-    paddingVertical: 12,
+    includeFontPadding: false,
   },
+  inputSingle: { height: 50, paddingVertical: 0, textAlignVertical: 'center' },
+  inputMulti: { minHeight: 88, paddingVertical: 12, textAlignVertical: 'top' },
   tile: { flex: 1, height: 108, padding: 12, gap: 6, borderRadius: radius.tile, borderWidth: 1, borderColor: color.rule, backgroundColor: color.surface },
   badge: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: color.rule, alignItems: 'center', justifyContent: 'center', backgroundColor: color.surface },
   chip: { height: 36, paddingHorizontal: 14, borderRadius: radius.chip, borderWidth: 1, borderColor: color.rule, backgroundColor: color.surface, justifyContent: 'center' },
