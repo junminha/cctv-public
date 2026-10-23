@@ -68,6 +68,7 @@ export type VisionResult = {
   elapsed_seconds: number;
   device: string;
   gpu_memory_peak_mb?: number;
+  models?: { yolo?: string; pose?: string };
   warnings: string[];
 };
 

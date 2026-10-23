@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, bPath, type Analysis, type AnalysisCamera, type Camera, type ReportDetail, type ReportSummary } from "@/lib/api";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { api, bPath, type Analysis, type ReportDetail, type ReportSummary, type VisionResult } from "@/lib/api";
 import { INCIDENT, OUTCOME, STAGES, jobLabel, kstTime, shortId, sourceLabelAI } from "@/lib/labels";
 import { useLive } from "@/lib/live";
 
-const FRAME_EVERY_MS = 5000;
 const STAGE_TAG: Record<string, string> = {
   RECEIVED: "RECEIVED",
   CLASSIFIED: "CLASSIFY",
@@ -31,7 +30,6 @@ const TAG_COLOR: Record<string, string> = {
   REVIEW: "var(--w-text)",
 };
 
-type LensState = "live" | "waiting" | "scanning" | "focus" | "skip" | "out" | "down";
 type LogLine = { at: string; offset: number | null; tag: string; text: string };
 
 function stageIndex(report: ReportSummary | null) {
@@ -116,83 +114,204 @@ function stageText(stage: string, analysis: Analysis | null) {
   }
 }
 
-function lensState(camera: Camera, report: ReportSummary | null, detail: ReportDetail | null, index: number): { state: LensState; row?: AnalysisCamera } {
-  if (!camera.online) return { state: "down" };
-  if (!report || !camera.approved || report.job.state === "failed") return { state: "live" };
-  const analysis = detail?.report_id === report.report_id ? detail.analysis : null;
-  if (index >= STAGES.length && analysis) {
-    const row = analysis.cameras.find((c) => c.camera_id === camera.id);
-    const candidate = analysis.candidates?.some((c) => c.camera_id === camera.id) ?? Boolean(row);
-    if (!candidate) return { state: "out" };
-    if (row && row.status !== "available") return { state: "down", row };
-    return { state: analysis.selected_camera_ids.includes(camera.id) ? "focus" : "skip", row };
-  }
-  if (index >= STAGES.length) return { state: "live" };
-  return { state: index <= 1 ? "waiting" : "scanning" };
+const MODE_LABEL: Record<string, string> = { selective: "선택 분석", all: "전체 분석", benchmark: "선택·전체 비교" };
+const KIND: Record<string, { code: string; label: string }> = {
+  image: { code: "PHOTO", label: "사진" },
+  audio: { code: "VOICE", label: "녹음" },
+  video: { code: "VIDEO", label: "영상" },
+};
+const size = (bytes: number) => (bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)}MB` : `${Math.max(1, Math.round(bytes / 1024))}KB`);
+const engine = (source: string | undefined) => (source === "unavailable" ? "사용 안 함" : sourceLabelAI(source));
+const findings = (result: VisionResult | undefined) => result?.observations.map((o) => o.finding).join(", ") || "관찰 없음";
+
+function Row({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="sheet-row">
+      <span className="soft">{label}</span>
+      <span className="min-w-0">{children}</span>
+    </div>
+  );
 }
 
-const LENS_LABEL: Record<LensState, string> = {
-  live: "실시간",
-  waiting: "대기",
-  scanning: "분석 중",
-  focus: "집중 분석",
-  skip: "건너뜀",
-  out: "반경 밖",
-  down: "연결 안 됨",
-};
-const LENS_COLOR: Partial<Record<LensState, string>> = { focus: "var(--w-beacon)", skip: "var(--w-amber)", scanning: "var(--w-tide)" };
-
-function Lens({ camera, state, row, reportId, frame, clock }: { camera: Camera; state: LensState; row?: AnalysisCamera; reportId?: string; frame: number; clock: string }) {
-  const [broken, setBroken] = useState<string | null>(null);
-  const evidence = state === "focus" ? row?.focus?.evidence[0] ?? row?.scan?.evidence[0] : undefined;
-  const src =
-    state === "down"
-      ? null
-      : evidence?.path && reportId
-        ? bPath(`/api/v1/admin/reports/${reportId}/artifacts/${evidence.path}`)
-        : `${bPath(`/api/v1/admin/cameras/${camera.id}/snapshot`)}?f=${frame}`;
-  const failed = !src || broken === src;
-  const metric = row?.scan ? `${row.scan.processed_frames + (row.focus?.processed_frames ?? 0)}f · 관련 ${pct(row.event_score)}` : `${camera.zone ?? camera.name}`;
+function Item({ code, tone, children }: { code: string; tone?: string; children: ReactNode }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-[0.3em]">
-      <div className={`lens min-h-0 flex-1 ${state}`}>
-        {!failed ? (
-          // eslint-disable-next-line @next/next/no-img-element -- authenticated proxy images, refreshed in place
-          <img src={src!} alt={`${camera.id} ${evidence ? "AI 근거 프레임" : "실시간 화면"}`} onError={() => setBroken(src)} />
+    <li className="item">
+      <span className="code" style={{ color: tone ?? "var(--w-soft)" }}>
+        {code}
+      </span>
+      <div className="flex min-w-0 flex-col gap-[0.15em]">{children}</div>
+    </li>
+  );
+}
+
+function Evidence({ src, caption }: { src: string; caption: string }) {
+  const [broken, setBroken] = useState(false);
+  if (broken) return null;
+  return (
+    <figure className="evidence">
+      {/* eslint-disable-next-line @next/next/no-img-element -- authenticated proxy image */}
+      <img src={src} alt={`AI 근거 프레임: ${caption}`} onError={() => setBroken(true)} />
+      <figcaption className="truncate">{caption}</figcaption>
+    </figure>
+  );
+}
+
+const CAMERA_STATE: Record<string, { label: string; tone: string }> = {
+  focus: { label: "집중 분석", tone: "var(--w-beacon)" },
+  skip: { label: "건너뜀", tone: "var(--w-amber)" },
+  CAMERA_UNAVAILABLE: { label: "연결 안 됨", tone: "var(--w-soft)" },
+  RECORDING_UNAVAILABLE: { label: "녹화 없음", tone: "var(--w-soft)" },
+};
+
+// What the analysis looked at and which engine handled each part, for the report on screen.
+function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: ReportDetail | null }) {
+  const analysis = detail?.analysis ?? null;
+  const lastRun = detail ? detail.events.map((e) => e.type).lastIndexOf("analysis_requested") : -1;
+  const fresh = detail && analysis && (lastRun < 0 || analysis.started_at >= detail.events[lastRun].created_at) ? analysis : null;
+  const params = fresh?.params ?? report.job.params ?? null;
+  const pending = report.job.state === "queued" || report.job.state === "running";
+  const vision = fresh?.cameras.flatMap((c) => [c.scan, c.focus, c.all]).concat(fresh.phone.map((p) => p.analysis)).filter((v): v is VisionResult => Boolean(v)) ?? [];
+  const models = vision.find((v) => v.models)?.models;
+  const gpuPeak = Math.max(0, ...vision.map((v) => v.gpu_memory_peak_mb ?? 0));
+  const frames = vision.reduce((sum, v) => sum + v.processed_frames, 0);
+  const voice = [...new Set(fresh?.phone.filter((p) => p.kind === "audio").map((p) => engine(p.source)) ?? [])];
+  const text = detail?.description ?? report.description;
+
+  return (
+    <div className="sheet min-h-0 flex-1 overflow-y-auto">
+      <section>
+        <h3 className="sheet-title">방식</h3>
+        {params ? (
+          <>
+            <Row label="분석">{MODE_LABEL[params.mode] ?? params.mode}</Row>
+            <Row label="영상">
+              {params.source === "recording" ? "녹화 구간" : "실시간"} {params.duration}초
+            </Row>
+            <Row label="프레임">
+              <span className="num">
+                탐색 {params.sample_fps}fps → 집중 {params.focus_fps}fps · 상위 {params.top_k}대
+              </span>
+            </Row>
+          </>
         ) : (
-          <div className="nosignal" />
+          <Row label="분석">요청 전</Row>
         )}
-        {state === "scanning" && <div className="scanline" />}
-        <div className="shutter" />
-        <span className="corner tl" />
-        <span className="corner tr" />
-        <span className="corner bl" />
-        <span className="corner br" />
-        <span className="hud mono left-[1.1em] top-[0.9em]">{camera.id.toUpperCase()}</span>
-        {!failed && camera.recording && !evidence && (
-          <span className="hud right-[1.1em] top-[0.9em]">
-            <span className="rec" /> REC
-          </span>
-        )}
-        {evidence ? (
-          <span className="hud bottom-[0.9em] left-[1.1em] right-[1.1em]">{evidence.findings[0] ?? "관련 장면 후보"}</span>
-        ) : (
-          !failed && <span className="hud mono bottom-[0.9em] right-[1.1em]">{clock}</span>
-        )}
-        {(state === "skip" || state === "out" || failed) && (
-          <div className="stamp">
-            <span className="display text-[1.6em]" style={{ color: state === "skip" ? "#f3c26b" : state === "down" || failed ? "var(--w-soft)" : "#dbe5e2" }}>
-              {state === "skip" ? "건너뜀" : state === "out" ? "반경 밖" : state === "down" ? "연결 안 됨" : "화면 없음"}
+        {fresh?.processing_seconds !== undefined && (
+          <Row label="처리">
+            <span className="num">
+              {fresh.processing_seconds.toFixed(1)}초{frames ? ` · ${frames}프레임` : ""}
             </span>
-          </div>
+          </Row>
         )}
-      </div>
-      <div className="flex items-baseline justify-between gap-[0.6em] text-[0.95em]">
-        <span className="mono soft truncate">{metric}</span>
-        <span className="display shrink-0" style={{ color: LENS_COLOR[state] ?? "var(--w-soft)" }}>
-          {LENS_LABEL[state]}
-        </span>
-      </div>
+        {fresh?.latency_seconds !== undefined && (
+          <Row label="신고부터">
+            <span className="num">{fresh.latency_seconds.toFixed(1)}초</span>
+          </Row>
+        )}
+        {fresh?.benchmark?.frame_reduction != null && (
+          <Row label="전체 대비">
+            <span className="num">프레임 {Math.round(fresh.benchmark.frame_reduction * 100)}% 절감</span>
+          </Row>
+        )}
+      </section>
+
+      <section>
+        <h3 className="sheet-title">사용한 모델</h3>
+        {fresh ? (
+          <>
+            <Row label="신고 분류">{engine(fresh.classification?.source)}</Row>
+            {voice.length > 0 && <Row label="음성 전사">{voice.join(", ")}</Row>}
+            {models?.yolo && (
+              <Row label="객체 탐지">
+                <span className="mono">{models.yolo}</span>
+              </Row>
+            )}
+            {models?.pose && (
+              <Row label="자세 추정">
+                <span className="mono">{models.pose}</span>
+              </Row>
+            )}
+            {vision.length > 0 && (
+              <Row label="연산 장치">
+                <span className="num">
+                  <span className="mono">{vision[0].device}</span>
+                  {gpuPeak > 0 ? ` · 최대 ${Math.round(gpuPeak)}MB` : ""}
+                </span>
+              </Row>
+            )}
+            <Row label="보고서">{engine(fresh.summary?.source)}</Row>
+          </>
+        ) : (
+          <p className="sheet-note soft">{pending ? "분석이 끝나면 표시돼요." : "분석 기록 없음"}</p>
+        )}
+      </section>
+
+      <section>
+        <h3 className="sheet-title">분석 자료</h3>
+        <ul>
+          <Item code="TEXT" tone="var(--w-text)">
+            <span className={text ? "clamp2" : "soft"}>{text || "내용 없이 위치만 보냄"}</span>
+            {detail?.details && <span className="soft truncate text-[0.9em]">장소: {detail.details}</span>}
+          </Item>
+          {detail?.attachments.map((file) => {
+            const result = fresh?.phone.find((p) => p.attachment_id === file.attachment_id);
+            const kind = KIND[file.kind] ?? { code: file.kind.toUpperCase(), label: file.kind };
+            return (
+              <Item key={file.attachment_id} code={kind.code} tone="var(--w-tide)">
+                <span className="num soft text-[0.9em]">
+                  {kind.label} · {size(file.bytes)} · {kstTime(file.created_at)}
+                </span>
+                {result?.transcript ? (
+                  <span className="clamp2">“{result.transcript}”</span>
+                ) : result?.analysis ? (
+                  <span className="clamp2">{findings(result.analysis)}</span>
+                ) : (
+                  <span className="soft">{pending ? "분석 대기" : result ? "결과 없음" : "이번 분석에 포함 안 됨"}</span>
+                )}
+              </Item>
+            );
+          })}
+          {fresh
+            ? fresh.cameras.map((row) => {
+                const state = row.status !== "available" ? row.status : fresh.selected_camera_ids.includes(row.camera_id) ? "focus" : "skip";
+                const badge = CAMERA_STATE[state] ?? { label: state, tone: "var(--w-soft)" };
+                const evidence = row.focus?.evidence[0] ?? (state === "focus" ? row.scan?.evidence[0] : undefined);
+                return (
+                  <Item key={row.camera_id} code={row.camera_id.toUpperCase()} tone={badge.tone}>
+                    <span className="flex items-baseline justify-between gap-[0.6em]">
+                      <span className="num soft truncate text-[0.9em]">
+                        {Math.round(row.distance_m)}m{row.window ? ` · ${row.window.source === "recording" ? "녹화" : "실시간"} ${row.window.duration}초` : ""}
+                      </span>
+                      <span className="shrink-0 font-semibold" style={{ color: badge.tone }}>
+                        {badge.label}
+                      </span>
+                    </span>
+                    {row.scan ? (
+                      <span className="num text-[0.9em]">
+                        탐색 {row.scan.processed_frames}f{row.focus ? ` + 집중 ${row.focus.processed_frames}f` : ""} · 관련 {pct(row.event_score)}
+                      </span>
+                    ) : (
+                      <span className="soft text-[0.9em]">영상을 받지 못함</span>
+                    )}
+                    {row.focus && <span className="clamp2">{findings(row.focus)}</span>}
+                    {evidence?.path && (
+                      <Evidence src={bPath(`/api/v1/admin/reports/${report.report_id}/artifacts/${evidence.path}`)} caption={evidence.findings[0] ?? "관련 장면 후보"} />
+                    )}
+                  </Item>
+                );
+              })
+            : pending && (
+                <Item code="CAM">
+                  <span className="soft">반경 안 웹캠 영상 분석 중</span>
+                </Item>
+              )}
+          {fresh && fresh.cameras.length === 0 && (
+            <Item code="CAM">
+              <span className="soft">반경 안 웹캠 없음</span>
+            </Item>
+          )}
+        </ul>
+      </section>
     </div>
   );
 }
@@ -203,10 +322,10 @@ function ReportItem({ report, selected, onSelect }: { report: ReportSummary; sel
   const tone = done ? (OUTCOME[report.job.stage]?.tone === "alert" ? "var(--w-beacon)" : OUTCOME[report.job.stage]?.tone === "warn" ? "var(--w-amber)" : "var(--w-soft)") : running ? "var(--w-beacon)" : "var(--w-soft)";
   return (
     <button type="button" className="report-item min-w-0" aria-current={selected} onClick={onSelect}>
-      <span className="flex items-center gap-[0.5em] text-[0.85em]">
-        {running && <span className="pulse" />}
-        <span className="mono soft">{kstTime(report.created_at)}</span>
-        <span className="mono soft">#{shortId(report.report_id)}</span>
+      <span className="mono soft flex items-center gap-[0.6em] text-[0.82em]">
+        {running && <span className="live-mark" />}
+        <span>{kstTime(report.created_at)}</span>
+        <span>#{shortId(report.report_id)}</span>
       </span>
       <span className={`truncate ${report.description ? "" : "soft"}`}>{report.description || "위치만 보낸 신고"}</span>
       <span className="truncate text-[0.85em]" style={{ color: tone }}>
@@ -222,7 +341,6 @@ export function LiveWall() {
   const [details, setDetails] = useState<Record<string, ReportDetail>>({});
   const [pinned, setPinned] = useState<string | null>(null);
   const [now, setNow] = useState<number | null>(null);
-  const [frame, setFrame] = useState(0);
   const logEnd = useRef<HTMLDivElement>(null);
 
   const reports = useMemo(() => [...(snapshot?.reports ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)), [snapshot]);
@@ -231,9 +349,8 @@ export function LiveWall() {
   const focus = (pinned && reports.find((r) => r.report_id === pinned)) || auto;
   const index = stageIndex(focus);
   const running = focus?.job.state === "running";
-  const cameras = (snapshot?.cameras ?? []).filter((c) => c.demo_source).sort((a, b) => a.id.localeCompare(b.id));
+  const failed = focus?.job.state === "failed";
   const focusKey = focus ? `${focus.report_id}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}` : "";
-  const anyRunning = reports.some((r) => r.job.state === "running");
 
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -258,13 +375,6 @@ export function LiveWall() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey]);
 
-  // Live webcam frames, paused while the GPU is analysing.
-  useEffect(() => {
-    if (anyRunning) return;
-    const timer = setInterval(() => setFrame((n) => n + 1), FRAME_EVERY_MS);
-    return () => clearInterval(timer);
-  }, [anyRunning]);
-
   const detail = focus ? details[focus.report_id] ?? null : null;
   const log = useMemo(() => (detail ? buildLog(detail) : []), [detail]);
   const lastAt = log.length ? new Date(log[log.length - 1].at).getTime() : null;
@@ -276,61 +386,53 @@ export function LiveWall() {
   }, [log.length, focus?.report_id]);
 
   return (
-    <main className="wall fixed inset-0 flex flex-col gap-[1em] overflow-hidden p-[1.4em]">
-      <header className="panel flex items-center justify-between gap-[2em] px-[1em] py-[0.6em]">
+    <main className="wall fixed inset-0 flex flex-col gap-[0.9em] overflow-hidden p-[1.2em]">
+      <header className="masthead flex items-end justify-between gap-[2em] pb-[0.5em]">
         <h1 className="display text-[1.7em] leading-none">AI 분석 로그</h1>
-        <div className="flex items-center gap-[0.7em] text-[1.05em]" aria-live="polite">
-          <span className="inline-block h-[0.7em] w-[0.7em] rounded-full" style={{ background: connection === "live" ? "var(--w-beacon)" : "var(--w-amber)" }} />
-          <span className="display">{connection === "live" ? "LIVE" : connection === "offline" ? "다시 연결하는 중" : "연결 중"}</span>
-          <span className="mono soft">{clock}</span>
+        <div className="num flex items-center gap-[0.7em]" aria-live="polite">
+          <span className="state-mark" style={{ background: connection === "live" ? "var(--w-tide)" : "var(--w-amber)" }} />
+          <span>{connection === "live" ? "LIVE" : connection === "offline" ? "다시 연결하는 중" : "연결 중"}</span>
+          <span className="soft">{clock}</span>
         </div>
       </header>
 
       {/* minmax(0, …): long report text must truncate, never widen a column. */}
-      <section className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.8fr)_minmax(0,1.65fr)_minmax(0,1fr)] gap-[1em]">
-        <aside className="panel flex min-h-0 flex-col p-[0.8em]">
-          <div className="flex items-center justify-between px-[0.4em] pb-[0.5em]">
-            <h2 className="display text-[1.15em]">신고</h2>
-            <button
-              type="button"
-              onClick={() => setPinned(null)}
-              className="rounded-[0.5em] px-[0.6em] py-[0.15em] text-[0.85em]"
-              style={{ border: "1px solid var(--w-line)", color: pinned ? "var(--w-text)" : "var(--w-beacon)", borderColor: pinned ? "var(--w-line)" : "var(--w-beacon)" }}
-              aria-pressed={!pinned}>
+      <section className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.8fr)_minmax(0,1.55fr)_minmax(0,1.1fr)] gap-[0.9em]">
+        <aside className="panel flex min-h-0 flex-col">
+          <div className="panel-head">
+            <h2>신고</h2>
+            <button type="button" onClick={() => setPinned(null)} className="toggle" aria-pressed={!pinned}>
               자동
             </button>
           </div>
-          <div className="flex min-h-0 flex-col gap-[0.25em] overflow-y-auto pr-[0.2em]">
+          <div className="flex min-h-0 flex-col overflow-y-auto">
             {reports.slice(0, 30).map((report) => (
               <ReportItem key={report.report_id} report={report} selected={report.report_id === focus?.report_id} onSelect={() => setPinned(report.report_id)} />
             ))}
-            {reports.length === 0 && <p className="soft px-[0.4em]">신고 없음</p>}
+            {reports.length === 0 && <p className="soft px-[0.8em] py-[0.6em]">신고 없음</p>}
           </div>
         </aside>
 
-        <article className="panel flex min-h-0 flex-col gap-[0.6em] p-[1.1em]">
+        <article className="panel flex min-h-0 flex-col">
           {focus ? (
             <>
-              <div className="flex flex-col gap-[0.3em]">
-                <p className="mono soft text-[0.85em]">
+              <div className="flex flex-col gap-[0.35em] px-[1em] pb-[0.8em] pt-[0.9em]">
+                <p className="num soft text-[0.85em]">
                   #{shortId(focus.report_id)} · {kstTime(focus.created_at)} · {focus.source === "demo" ? "모의" : "시민"} · 반경 {Math.round(focus.radius_m)}m
                 </p>
                 <p className={`display clamp2 text-[1.5em] leading-[1.3] ${focus.description ? "" : "soft"}`}>{focus.description || "위치만 보낸 신고"}</p>
               </div>
-              <div className="flex gap-[0.25em]" aria-label="분석 단계">
+              <ol className="stages" aria-label="분석 단계">
                 {STAGES.map((stage, i) => {
-                  const state = index > i || index >= STAGES.length ? "var(--w-tide)" : index === i && running ? "var(--w-beacon)" : "var(--w-line)";
+                  const state = failed ? "fail" : index > i || index >= STAGES.length ? "done" : index === i && running ? "now" : "todo";
                   return (
-                    <div key={stage.key} className="flex flex-1 flex-col gap-[0.2em]">
-                      <div className="h-[0.35em] rounded-full" style={{ background: state }} />
-                      <span className="text-[0.75em]" style={{ color: state === "var(--w-line)" ? "var(--w-soft)" : "var(--w-text)" }}>
-                        {stage.label}
-                      </span>
-                    </div>
+                    <li key={stage.key} className={`stage ${state}`}>
+                      {stage.label}
+                    </li>
                   );
                 })}
-              </div>
-              <div className="log min-h-0 flex-1 overflow-y-auto rounded-[0.6em] border border-[var(--w-line)] bg-[var(--w-sunk)] p-[0.6em]" role="log" aria-live="polite">
+              </ol>
+              <div className="log min-h-0 flex-1 overflow-y-auto px-[0.6em] py-[0.5em]" role="log" aria-live="polite">
                 {log.map((line, i) => (
                   <div key={`${line.at}-${line.tag}-${i}`} className="log-line">
                     <span className="soft">{kstTime(line.at)}</span>
@@ -362,13 +464,13 @@ export function LiveWall() {
           )}
         </article>
 
-        <div className="flex min-h-0 flex-col gap-[0.8em]">
-          {cameras.map((camera) => {
-            const { state, row } = lensState(camera, focus, detail, index);
-            return <Lens key={camera.id} camera={camera} state={state} row={row} reportId={focus?.report_id} frame={frame} clock={clock} />;
-          })}
-          {cameras.length === 0 && <p className="soft">웹캠 정보 없음</p>}
-        </div>
+        <aside className="panel flex min-h-0 flex-col" aria-label="분석 기록">
+          <div className="panel-head">
+            <h2>분석 기록</h2>
+            {focus && <span className="mono soft text-[0.85em]">#{shortId(focus.report_id)}</span>}
+          </div>
+          {focus ? <AnalysisRecord report={focus} detail={detail} /> : <p className="soft px-[0.8em] py-[0.6em]">신고를 고르면 분석 자료와 사용한 모델이 나와요.</p>}
+        </aside>
       </section>
     </main>
   );
