@@ -1,27 +1,38 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { api, bPath, type AnalysisCamera, type Camera, type ReportDetail, type ReportSummary } from "@/lib/api";
-import { INCIDENT, OUTCOME, STAGES, kstTime, shortId } from "@/lib/labels";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { api, bPath, type Analysis, type AnalysisCamera, type Camera, type ReportDetail, type ReportSummary } from "@/lib/api";
+import { INCIDENT, OUTCOME, STAGES, jobLabel, kstTime, shortId, sourceLabelAI } from "@/lib/labels";
 import { useLive } from "@/lib/live";
 
-// What each step means, in words a passing visitor can follow.
-const EXPLAIN: Record<string, string> = {
-  RECEIVED: "시민의 신고가 서버에 도착했어요.",
-  CLASSIFIED: "신고 글과 목소리를 읽고 어떤 사건인지 정해요.",
-  CANDIDATES_FOUND: "신고 위치 반경 안에 있는 카메라만 골라요.",
-  SCANNING: "고른 카메라 영상을 1초에 한 장씩 빠르게 훑어봐요.",
-  FOCUSED_ANALYSIS: "관련 장면이 보인 카메라만 자세히 들여다봐요.",
-  SUMMARIZING: "AI가 본 것을 담당자용 보고서로 정리해요.",
+const FRAME_EVERY_MS = 5000;
+const STAGE_TAG: Record<string, string> = {
+  RECEIVED: "RECEIVED",
+  CLASSIFIED: "CLASSIFY",
+  CANDIDATES_FOUND: "CANDIDATES",
+  SCANNING: "SCAN",
+  FOCUSED_ANALYSIS: "FOCUS",
+  SUMMARIZING: "SUMMARY",
 };
-const WAITING = "신고 위치를 확인하고 분석 순서를 기다려요.";
+const TAG_COLOR: Record<string, string> = {
+  RECEIVED: "var(--w-text)",
+  QUEUE: "var(--w-soft)",
+  ATTACH: "var(--w-tide)",
+  CLASSIFY: "var(--w-tide)",
+  CANDIDATES: "var(--w-tide)",
+  SCAN: "var(--w-tide)",
+  FOCUS: "var(--w-beacon)",
+  SUMMARY: "var(--w-beacon)",
+  VOICE: "var(--w-tide)",
+  PHONE: "var(--w-tide)",
+  DONE: "var(--w-beacon)",
+  RERUN: "var(--w-amber)",
+  WARN: "var(--w-amber)",
+  REVIEW: "var(--w-text)",
+};
 
-type LensState = "live" | "waiting" | "candidate" | "scanning" | "focusing" | "focus" | "skip" | "out" | "down";
-
-function pickFocus(reports: ReportSummary[]) {
-  const recent = [...reports].sort((a, b) => b.created_at.localeCompare(a.created_at));
-  return recent.find((r) => r.job.state === "running") ?? recent.find((r) => r.job.state === "queued" && r.job.params) ?? recent[0] ?? null;
-}
+type LensState = "live" | "waiting" | "scanning" | "focus" | "skip" | "out" | "down";
+type LogLine = { at: string; offset: number | null; tag: string; text: string };
 
 function stageIndex(report: ReportSummary | null) {
   if (!report) return -1;
@@ -30,9 +41,84 @@ function stageIndex(report: ReportSummary | null) {
   return 0;
 }
 
+const pct = (value: number | undefined) => (value === undefined ? "—" : `${Math.round(value * 100)}%`);
+
+// One line per thing the pipeline did, built from the report's event log and its stored analysis.
+function buildLog(detail: ReportDetail): LogLine[] {
+  const analysis: Analysis | null = detail.analysis;
+  const lines: LogLine[] = [];
+  let start: number | null = null;
+  const add = (at: string, tag: string, text: string) =>
+    lines.push({ at, offset: start === null ? null : (new Date(at).getTime() - start) / 1000, tag, text });
+  // The stored analysis belongs to the latest run only; earlier runs (e.g. re-runs after an
+  // attachment) keep their step names and outcome without borrowing the newest details.
+  const lastRun = detail.events.map((e) => e.type).lastIndexOf("analysis_requested");
+  // While a re-run is still going, the stored analysis is the previous run's.
+  const fresh = analysis && (lastRun < 0 || analysis.started_at >= detail.events[lastRun].created_at) ? analysis : null;
+  detail.events.forEach((event, i) => {
+    const latest = i >= lastRun;
+    if (event.type === "received") {
+      add(event.created_at, "RECEIVED", `${detail.source === "demo" ? "모의 신고" : "시민 신고"} · 반경 ${Math.round(detail.radius_m)}m${detail.description ? "" : " · 내용 없음"}`);
+    } else if (event.type === "attachment") {
+      const kind = String(event.data.kind ?? "");
+      add(event.created_at, "ATTACH", `${kind === "image" ? "사진" : kind === "audio" ? "녹음" : kind === "video" ? "영상" : kind} 수신`);
+    } else if (event.type === "analysis_requested") {
+      start = new Date(event.created_at).getTime();
+      const p = event.data as Record<string, unknown>;
+      add(event.created_at, "QUEUE", `분석 요청 · ${p.mode ?? "selective"} · ${p.source === "recording" ? "녹화" : "실시간"} ${p.duration ?? 10}초`);
+    } else if (event.type === "analysis_rerun") {
+      add(event.created_at, "RERUN", "첨부 반영 재분석");
+    } else if (event.type === "stage") {
+      const tag = STAGE_TAG[event.message] ?? event.message;
+      add(event.created_at, tag, stageText(event.message, latest ? fresh : null));
+    } else if (event.type === "analysis_finished") {
+      const outcome = OUTCOME[event.message]?.label ?? event.message;
+      if (!latest) {
+        add(event.created_at, "DONE", outcome);
+        return;
+      }
+      const latency = fresh?.latency_seconds !== undefined ? ` · ${fresh.latency_seconds.toFixed(1)}초` : "";
+      for (const phone of fresh?.phone ?? []) {
+        if (phone.transcript) add(event.created_at, "VOICE", `“${phone.transcript}”`);
+        else if (phone.analysis) add(event.created_at, "PHONE", `${phone.kind === "video" ? "영상" : "사진"} · ${phone.analysis.observations.map((o) => o.finding).join(", ") || "관찰 없음"}`);
+      }
+      for (const warning of fresh?.warnings ?? []) add(event.created_at, "WARN", warning);
+      add(event.created_at, "DONE", `${outcome}${latency}`);
+    } else if (event.type === "confirmed" || event.type === "closed") {
+      add(event.created_at, "REVIEW", event.type === "confirmed" ? "담당자 확인" : "사건 종결");
+    }
+  });
+  return lines;
+}
+
+function stageText(stage: string, analysis: Analysis | null) {
+  if (!analysis) return jobLabel({ state: "running", stage });
+  const cams = analysis.cameras;
+  switch (stage) {
+    case "CLASSIFIED": {
+      const c = analysis.classification;
+      return c ? `${INCIDENT[c.incident_type] ?? c.incident_type} · ${sourceLabelAI(c.source)}${c.keywords.length ? ` · ${c.keywords.slice(0, 4).join(", ")}` : ""}` : "분류";
+    }
+    case "CANDIDATES_FOUND":
+      return analysis.candidates?.length ? analysis.candidates.map((c) => `${c.camera_id} ${Math.round(c.distance_m)}m`).join(" · ") : "반경 안 카메라 없음";
+    case "SCANNING":
+      return cams.filter((c) => c.scan).map((c) => `${c.camera_id} ${c.scan!.processed_frames}f 관련 ${pct(c.event_score)}`).join(" · ") || "탐색할 영상 없음";
+    case "FOCUSED_ANALYSIS": {
+      const focus = cams.filter((c) => c.focus);
+      return focus.length
+        ? focus.map((c) => `${c.camera_id} ${c.focus!.processed_frames}f → ${c.focus!.observations.map((o) => o.finding).join(", ") || "관찰 없음"}`).join(" · ")
+        : "관련 장면이 보인 카메라 없음";
+    }
+    case "SUMMARIZING":
+      return `보고서 · ${sourceLabelAI(analysis.summary?.source)}`;
+    default:
+      return stage;
+  }
+}
+
 function lensState(camera: Camera, report: ReportSummary | null, detail: ReportDetail | null, index: number): { state: LensState; row?: AnalysisCamera } {
   if (!camera.online) return { state: "down" };
-  if (!report || !camera.approved) return { state: "live" };
+  if (!report || !camera.approved || report.job.state === "failed") return { state: "live" };
   const analysis = detail?.report_id === report.report_id ? detail.analysis : null;
   if (index >= STAGES.length && analysis) {
     const row = analysis.cameras.find((c) => c.camera_id === camera.id);
@@ -42,37 +128,115 @@ function lensState(camera: Camera, report: ReportSummary | null, detail: ReportD
     return { state: analysis.selected_camera_ids.includes(camera.id) ? "focus" : "skip", row };
   }
   if (index >= STAGES.length) return { state: "live" };
-  if (index <= 1) return { state: "waiting" };
-  return { state: index === 2 ? "candidate" : index === 3 ? "scanning" : "focusing" };
+  return { state: index <= 1 ? "waiting" : "scanning" };
 }
 
 const LENS_LABEL: Record<LensState, string> = {
   live: "실시간",
   waiting: "대기",
-  candidate: "반경 안 후보",
-  scanning: "빠르게 훑는 중",
-  focusing: "분석 중",
+  scanning: "분석 중",
   focus: "집중 분석",
-  skip: "건너뜀 · 관련 장면 없음",
-  out: "반경 밖 · 보지 않음",
+  skip: "건너뜀",
+  out: "반경 밖",
   down: "연결 안 됨",
 };
+const LENS_COLOR: Partial<Record<LensState, string>> = { focus: "var(--w-beacon)", skip: "var(--w-amber)", scanning: "var(--w-tide)" };
+
+function Lens({ camera, state, row, reportId, frame, clock }: { camera: Camera; state: LensState; row?: AnalysisCamera; reportId?: string; frame: number; clock: string }) {
+  const [broken, setBroken] = useState<string | null>(null);
+  const evidence = state === "focus" ? row?.focus?.evidence[0] ?? row?.scan?.evidence[0] : undefined;
+  const src =
+    state === "down"
+      ? null
+      : evidence?.path && reportId
+        ? bPath(`/api/v1/admin/reports/${reportId}/artifacts/${evidence.path}`)
+        : `${bPath(`/api/v1/admin/cameras/${camera.id}/snapshot`)}?f=${frame}`;
+  const failed = !src || broken === src;
+  const metric = row?.scan ? `${row.scan.processed_frames + (row.focus?.processed_frames ?? 0)}f · 관련 ${pct(row.event_score)}` : `${camera.zone ?? camera.name}`;
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-[0.3em]">
+      <div className={`lens min-h-0 flex-1 ${state}`}>
+        {!failed ? (
+          // eslint-disable-next-line @next/next/no-img-element -- authenticated proxy images, refreshed in place
+          <img src={src!} alt={`${camera.id} ${evidence ? "AI 근거 프레임" : "실시간 화면"}`} onError={() => setBroken(src)} />
+        ) : (
+          <div className="nosignal" />
+        )}
+        {state === "scanning" && <div className="scanline" />}
+        <div className="shutter" />
+        <span className="corner tl" />
+        <span className="corner tr" />
+        <span className="corner bl" />
+        <span className="corner br" />
+        <span className="hud mono left-[1.1em] top-[0.9em]">{camera.id.toUpperCase()}</span>
+        {!failed && camera.recording && !evidence && (
+          <span className="hud right-[1.1em] top-[0.9em]">
+            <span className="rec" /> REC
+          </span>
+        )}
+        {evidence ? (
+          <span className="hud bottom-[0.9em] left-[1.1em] right-[1.1em]">{evidence.findings[0] ?? "관련 장면 후보"}</span>
+        ) : (
+          !failed && <span className="hud mono bottom-[0.9em] right-[1.1em]">{clock}</span>
+        )}
+        {(state === "skip" || state === "out" || failed) && (
+          <div className="stamp">
+            <span className="display text-[1.6em]" style={{ color: state === "skip" ? "#f3c26b" : state === "down" || failed ? "var(--w-soft)" : "#dbe5e2" }}>
+              {state === "skip" ? "건너뜀" : state === "out" ? "반경 밖" : state === "down" ? "연결 안 됨" : "화면 없음"}
+            </span>
+          </div>
+        )}
+      </div>
+      <div className="flex items-baseline justify-between gap-[0.6em] text-[0.95em]">
+        <span className="mono soft truncate">{metric}</span>
+        <span className="display shrink-0" style={{ color: LENS_COLOR[state] ?? "var(--w-soft)" }}>
+          {LENS_LABEL[state]}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function ReportItem({ report, selected, onSelect }: { report: ReportSummary; selected: boolean; onSelect: () => void }) {
+  const running = report.job.state === "running";
+  const done = report.job.state === "completed" || report.job.state === "failed";
+  const tone = done ? (OUTCOME[report.job.stage]?.tone === "alert" ? "var(--w-beacon)" : OUTCOME[report.job.stage]?.tone === "warn" ? "var(--w-amber)" : "var(--w-soft)") : running ? "var(--w-beacon)" : "var(--w-soft)";
+  return (
+    <button type="button" className="report-item min-w-0" aria-current={selected} onClick={onSelect}>
+      <span className="flex items-center gap-[0.5em] text-[0.85em]">
+        {running && <span className="pulse" />}
+        <span className="mono soft">{kstTime(report.created_at)}</span>
+        <span className="mono soft">#{shortId(report.report_id)}</span>
+      </span>
+      <span className={`truncate ${report.description ? "" : "soft"}`}>{report.description || "위치만 보낸 신고"}</span>
+      <span className="truncate text-[0.85em]" style={{ color: tone }}>
+        {jobLabel(report.job)}
+        {running && ` · ${Math.round(report.job.progress * 100)}%`}
+      </span>
+    </button>
+  );
+}
 
 export function LiveWall() {
   const { snapshot, connection } = useLive();
-  const [detail, setDetail] = useState<ReportDetail | null>(null);
-  const [now, setNow] = useState<Date | null>(null);
-  const [metrics, setMetrics] = useState<{ reports: Record<string, number>; latency_seconds: { mean: number } | null; benchmarks: { frame_reduction: number | null }[] } | null>(null);
+  const [details, setDetails] = useState<Record<string, ReportDetail>>({});
+  const [pinned, setPinned] = useState<string | null>(null);
+  const [now, setNow] = useState<number | null>(null);
+  const [frame, setFrame] = useState(0);
+  const logEnd = useRef<HTMLDivElement>(null);
 
-  const reports = useMemo(() => snapshot?.reports ?? [], [snapshot]);
-  const focus = useMemo(() => pickFocus(reports), [reports]);
+  const reports = useMemo(() => [...(snapshot?.reports ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)), [snapshot]);
+  // Follow the report being analysed unless one was clicked.
+  const auto = reports.find((r) => r.job.state === "running") ?? reports.find((r) => r.job.state === "queued" && r.job.params) ?? reports[0] ?? null;
+  const focus = (pinned && reports.find((r) => r.report_id === pinned)) || auto;
   const index = stageIndex(focus);
   const running = focus?.job.state === "running";
   const cameras = (snapshot?.cameras ?? []).filter((c) => c.demo_source).sort((a, b) => a.id.localeCompare(b.id));
-  const focusKey = focus ? `${focus.report_id}:${focus.job.state}:${focus.job.stage}` : "";
+  const focusKey = focus ? `${focus.report_id}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}` : "";
+  const anyRunning = reports.some((r) => r.job.state === "running");
 
   useEffect(() => {
-    const tick = () => setNow(new Date());
+    const tick = () => setNow(Date.now());
     const first = setTimeout(tick, 0);
     const timer = setInterval(tick, 1000);
     return () => {
@@ -84,7 +248,9 @@ export function LiveWall() {
   useEffect(() => {
     if (!focus) return;
     let alive = true;
-    api<ReportDetail>(`/api/v1/admin/reports/${focus.report_id}`).then((value) => alive && setDetail(value)).catch(() => {});
+    api<ReportDetail>(`/api/v1/admin/reports/${focus.report_id}`)
+      .then((value) => alive && setDetails((current) => ({ ...current, [value.report_id]: value })))
+      .catch(() => {});
     return () => {
       alive = false;
     };
@@ -92,190 +258,118 @@ export function LiveWall() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey]);
 
+  // Live webcam frames, paused while the GPU is analysing.
   useEffect(() => {
-    const load = () => api<typeof metrics>("/api/v1/admin/metrics").then(setMetrics).catch(() => {});
-    const first = setTimeout(load, 0);
-    const timer = setInterval(load, 30000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
-  }, []);
-
-  // Live webcam frames, paused while the GPU is analysing so the booth stays responsive.
-  const [frame, setFrame] = useState(0);
-  useEffect(() => {
-    if (running) return;
-    const timer = setInterval(() => setFrame((n) => n + 1), 5000);
+    if (anyRunning) return;
+    const timer = setInterval(() => setFrame((n) => n + 1), FRAME_EVERY_MS);
     return () => clearInterval(timer);
-  }, [running]);
+  }, [anyRunning]);
 
-  const shown = detail && focus && detail.report_id === focus.report_id ? detail : null;
-  const analysis = shown?.analysis ?? null;
-  const done = index >= STAGES.length;
-  const stageKey = running ? focus?.job.stage ?? "" : "";
-  const transcripts = (analysis?.phone ?? []).filter((p) => p.transcript).map((p) => p.transcript as string);
-  const attachments = shown?.attachments ?? [];
-  const count = (kind: string) => attachments.filter((a) => a.kind === kind).length;
-  const today = reports.filter((r) => now && new Date(r.created_at).toDateString() === now.toDateString());
-  const reduction = metrics?.benchmarks.find((b) => b.frame_reduction !== null)?.frame_reduction ?? null;
-  const outcome = done && focus ? OUTCOME[focus.job.stage] : null;
+  const detail = focus ? details[focus.report_id] ?? null : null;
+  const log = useMemo(() => (detail ? buildLog(detail) : []), [detail]);
+  const lastAt = log.length ? new Date(log[log.length - 1].at).getTime() : null;
+  const elapsed = running && now && lastAt ? Math.max(0, (now - lastAt) / 1000) : null;
+  const clock = now ? kstTime(new Date(now).toISOString()) : "";
+
+  useEffect(() => {
+    logEnd.current?.scrollIntoView({ block: "end" });
+  }, [log.length, focus?.report_id]);
 
   return (
-    <main className="wall fixed inset-0 flex flex-col gap-[1.2em] overflow-hidden p-[1.6em]">
-      <header className="flex items-end justify-between gap-[2em]">
-        <div>
-          <p className="soft text-[1em]">시민 신고 기반 CCTV 선택 분석 · 부경대 AI·SW 경진대회</p>
-          <h1 className="display text-[2.6em] leading-[1.15]">
-            신고가 오면, AI는 <span style={{ color: "var(--w-beacon)" }}>근처 카메라만</span> 봅니다
-          </h1>
-        </div>
-        <div className="flex items-center gap-[0.8em] text-[1.1em]">
-          <span className="inline-block h-[0.7em] w-[0.7em] rounded-full" style={{ background: connection === "live" ? "var(--w-beacon)" : "var(--w-soft)" }} />
-          <span className="display">{connection === "live" ? "LIVE" : "연결 중"}</span>
-          <span className="mono soft">{now ? kstTime(now.toISOString()) : ""}</span>
+    <main className="wall fixed inset-0 flex flex-col gap-[1em] overflow-hidden p-[1.4em]">
+      <header className="panel flex items-center justify-between gap-[2em] px-[1em] py-[0.6em]">
+        <h1 className="display text-[1.7em] leading-none">AI 분석 로그</h1>
+        <div className="flex items-center gap-[0.7em] text-[1.05em]" aria-live="polite">
+          <span className="inline-block h-[0.7em] w-[0.7em] rounded-full" style={{ background: connection === "live" ? "var(--w-beacon)" : "var(--w-amber)" }} />
+          <span className="display">{connection === "live" ? "LIVE" : connection === "offline" ? "다시 연결하는 중" : "연결 중"}</span>
+          <span className="mono soft">{clock}</span>
         </div>
       </header>
 
-      <section className="grid min-h-0 flex-1 grid-cols-[1.55fr_1fr] gap-[1.2em]">
-        <div className="flex min-h-0 flex-col gap-[1.2em]">
-          <article className="panel flex flex-col gap-[0.7em] p-[1.4em]">
-            {focus ? (
-              <>
-                <p className="soft text-[1em]">
-                  {focus.source === "demo" ? "모의 신고" : "시민 신고"} · <span className="mono">{kstTime(focus.created_at)}</span> · <span className="mono">#{shortId(focus.report_id)}</span>
-                  {done && <span> · 방금 끝난 분석</span>}
-                </p>
-                <p className={`display text-[2.1em] leading-[1.25] ${focus.description ? "" : "soft"}`}>
-                  {focus.description ? `“${focus.description}”` : "내용 없이 위치만 보낸 신고"}
-                </p>
-                <div className="flex flex-wrap gap-[0.5em] text-[1em]">
-                  <span className="tag" style={{ borderColor: "var(--w-beacon)", color: "var(--w-beacon)" }}>
-                    {analysis?.classification ? `AI 분류 · ${INCIDENT[analysis.classification.incident_type] ?? analysis.classification.incident_type}` : "AI 분류 대기"}
-                  </span>
-                  <span className="tag">반경 {Math.round(focus.radius_m)}m</span>
-                  {count("image") > 0 && <span className="tag">사진 {count("image")}</span>}
-                  {count("audio") > 0 && <span className="tag">녹음 {count("audio")}</span>}
-                  {count("video") > 0 && <span className="tag">영상 {count("video")}</span>}
-                </div>
-                {transcripts.length > 0 && (
-                  <p className="text-[1.05em]">
-                    <span className="soft">목소리 → 글자 </span>“{transcripts[0].slice(0, 80)}”
-                  </p>
-                )}
-              </>
-            ) : (
-              <>
-                <p className="soft">대기 중</p>
-                <p className="display text-[2.1em]">휴대폰 신고를 기다리고 있어요</p>
-                <p className="soft text-[1.1em]">신고 앱에서 위치만 보내도 AI 분석이 바로 시작돼요.</p>
-              </>
-            )}
-          </article>
+      {/* minmax(0, …): long report text must truncate, never widen a column. */}
+      <section className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.8fr)_minmax(0,1.65fr)_minmax(0,1fr)] gap-[1em]">
+        <aside className="panel flex min-h-0 flex-col p-[0.8em]">
+          <div className="flex items-center justify-between px-[0.4em] pb-[0.5em]">
+            <h2 className="display text-[1.15em]">신고</h2>
+            <button
+              type="button"
+              onClick={() => setPinned(null)}
+              className="rounded-[0.5em] px-[0.6em] py-[0.15em] text-[0.85em]"
+              style={{ border: "1px solid var(--w-line)", color: pinned ? "var(--w-text)" : "var(--w-beacon)", borderColor: pinned ? "var(--w-line)" : "var(--w-beacon)" }}
+              aria-pressed={!pinned}>
+              자동
+            </button>
+          </div>
+          <div className="flex min-h-0 flex-col gap-[0.25em] overflow-y-auto pr-[0.2em]">
+            {reports.slice(0, 30).map((report) => (
+              <ReportItem key={report.report_id} report={report} selected={report.report_id === focus?.report_id} onSelect={() => setPinned(report.report_id)} />
+            ))}
+            {reports.length === 0 && <p className="soft px-[0.4em]">신고 없음</p>}
+          </div>
+        </aside>
 
-          <article className="panel p-[1.4em] pb-[1.2em]">
-            <div className="rail">
-              <div className="rail-fill" style={{ width: `${(Math.min(Math.max(index, 0), STAGES.length - 1) / (STAGES.length - 1)) * 83.34}%` }} />
-              {STAGES.map((stage, i) => {
-                const state = index > i || done ? "done" : index === i && (running || focus?.job.state === "queued") ? "now" : "";
-                return (
-                  <div key={stage.key} className="station">
-                    <div className={`node ${state}`}>{state === "done" ? "✓" : ""}</div>
-                    <span className={`display text-[1.15em] ${state ? "" : "soft"}`}>{stage.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-            <p className="mt-[1em] text-center text-[1.25em]">
-              {!focus ? "신고가 들어오면 이 순서대로 분석해요." : done ? (outcome ? `결과 · ${outcome.label}` : "분석이 끝났어요.") : running ? EXPLAIN[stageKey] ?? "" : WAITING}
-            </p>
-          </article>
-
-          <article className="panel flex min-h-0 flex-1 flex-col gap-[0.7em] overflow-hidden p-[1.4em]">
-            <h2 className="display text-[1.4em]">AI가 본 것</h2>
-            {done && analysis?.summary ? (
-              <>
-                <ul className="flex flex-col gap-[0.4em] text-[1.15em]">
-                  {analysis.summary.cctv_observations.slice(0, 3).map((row, i) => (
-                    <li key={i}>
-                      <span className="mono" style={{ color: "var(--w-beacon)" }}>{row.camera_id}</span> {row.finding}
-                    </li>
-                  ))}
-                  {analysis.summary.phone_observations.slice(0, 2).map((row) => (
-                    <li key={row}>
-                      <span style={{ color: "var(--w-tide)" }}>신고자 자료</span> {row}
-                    </li>
-                  ))}
-                  {analysis.summary.cctv_observations.length === 0 && analysis.summary.phone_observations.length === 0 && (
-                    <li className="soft">근처 카메라에서 신고와 관련된 장면을 찾지 못했어요.</li>
-                  )}
-                </ul>
-                <p className="mt-auto text-[1em]" style={{ color: "var(--w-amber)" }}>
-                  AI 결과는 후보일 뿐이에요. 최종 판단은 담당자가 원본 영상을 보고 해요.
+        <article className="panel flex min-h-0 flex-col gap-[0.6em] p-[1.1em]">
+          {focus ? (
+            <>
+              <div className="flex flex-col gap-[0.3em]">
+                <p className="mono soft text-[0.85em]">
+                  #{shortId(focus.report_id)} · {kstTime(focus.created_at)} · {focus.source === "demo" ? "모의" : "시민"} · 반경 {Math.round(focus.radius_m)}m
                 </p>
-              </>
-            ) : (
-              <p className="soft text-[1.15em]">{running ? "분석이 끝나면 AI가 찾은 장면과 근거가 여기에 나와요." : "아직 분석한 신고가 없어요."}</p>
-            )}
-          </article>
-        </div>
-
-        <div className="flex min-h-0 flex-col gap-[1em]">
-          {cameras.map((camera) => {
-            const { state, row } = lensState(camera, focus, shown, index);
-            const evidence = state === "focus" ? row?.focus?.evidence[0] ?? row?.scan?.evidence[0] : undefined;
-            const src = evidence?.path && focus
-              ? bPath(`/api/v1/admin/reports/${focus.report_id}/artifacts/${evidence.path}`)
-              : `${bPath(`/api/v1/admin/cameras/${camera.id}/snapshot`)}?f=${frame}`;
-            const accent = state === "focus" ? "var(--w-beacon)" : state === "skip" ? "var(--w-amber)" : state === "scanning" || state === "focusing" || state === "candidate" ? "var(--w-tide)" : "var(--w-soft)";
-            return (
-              <div key={camera.id} className="flex min-h-0 flex-1 flex-col gap-[0.4em]">
-                <div className={`lens min-h-0 flex-1 ${state}`} style={{ aspectRatio: "auto" }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element -- authenticated proxy images */}
-                  <img src={src} alt={`${camera.id} ${evidence ? "AI 근거 프레임" : "실시간 화면"}`} onError={(event) => (event.currentTarget.style.visibility = "hidden")} />
-                  {(state === "scanning" || state === "focusing") && <div className="scanline" />}
-                  <div className="shutter" />
-                  {evidence && (
-                    <p className="absolute bottom-[0.5em] left-[0.6em] right-[0.6em] rounded-[0.5em] bg-[rgba(7,22,33,.8)] px-[0.6em] py-[0.3em] text-[0.95em]">
-                      AI 근거 · {evidence.findings[0] ?? "관련 장면 후보"}
-                    </p>
-                  )}
-                </div>
-                <div className="flex items-baseline justify-between gap-[0.6em] text-[1em]">
-                  <span>
-                    <span className="mono">{camera.id}</span> <span className="soft">{camera.zone ?? camera.name}</span>
-                  </span>
-                  <span className="display" style={{ color: accent }}>
-                    {LENS_LABEL[state]}
-                    {state === "focus" && row?.event_score !== undefined && <span className="mono"> 관련도 {Math.round(row.event_score * 100)}%</span>}
-                  </span>
-                </div>
+                <p className={`display clamp2 text-[1.5em] leading-[1.3] ${focus.description ? "" : "soft"}`}>{focus.description || "위치만 보낸 신고"}</p>
               </div>
-            );
+              <div className="flex gap-[0.25em]" aria-label="분석 단계">
+                {STAGES.map((stage, i) => {
+                  const state = index > i || index >= STAGES.length ? "var(--w-tide)" : index === i && running ? "var(--w-beacon)" : "var(--w-line)";
+                  return (
+                    <div key={stage.key} className="flex flex-1 flex-col gap-[0.2em]">
+                      <div className="h-[0.35em] rounded-full" style={{ background: state }} />
+                      <span className="text-[0.75em]" style={{ color: state === "var(--w-line)" ? "var(--w-soft)" : "var(--w-text)" }}>
+                        {stage.label}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="log min-h-0 flex-1 overflow-y-auto rounded-[0.6em] border border-[var(--w-line)] bg-[var(--w-sunk)] p-[0.6em]" role="log" aria-live="polite">
+                {log.map((line, i) => (
+                  <div key={`${line.at}-${line.tag}-${i}`} className="log-line">
+                    <span className="soft">{kstTime(line.at)}</span>
+                    <span className="soft">{line.offset !== null && line.offset >= 0 ? `+${line.offset.toFixed(1)}s` : ""}</span>
+                    <span className="log-tag" style={{ color: TAG_COLOR[line.tag] ?? "var(--w-text)" }}>
+                      {line.tag}
+                    </span>
+                    <span className="log-msg">{line.text}</span>
+                  </div>
+                ))}
+                {(running || focus.job.state === "queued") && (
+                  <div className="log-line">
+                    <span className="soft">{clock}</span>
+                    <span className="soft">{elapsed !== null ? `${elapsed.toFixed(0)}s` : ""}</span>
+                    <span className="log-tag" style={{ color: "var(--w-beacon)" }}>
+                      {running ? STAGE_TAG[focus.job.stage] ?? focus.job.stage : "QUEUE"}
+                    </span>
+                    <span className="log-msg">
+                      {running ? `${jobLabel(focus.job)} 진행 중` : "분석 대기"} <span className="cursor" />
+                    </span>
+                  </div>
+                )}
+                {!detail && <p className="soft">불러오는 중</p>}
+                <div ref={logEnd} />
+              </div>
+            </>
+          ) : (
+            <p className="soft m-auto text-[1.2em]">신고가 들어오면 분석 로그가 여기에 나와요.</p>
+          )}
+        </article>
+
+        <div className="flex min-h-0 flex-col gap-[0.8em]">
+          {cameras.map((camera) => {
+            const { state, row } = lensState(camera, focus, detail, index);
+            return <Lens key={camera.id} camera={camera} state={state} row={row} reportId={focus?.report_id} frame={frame} clock={clock} />;
           })}
-          {cameras.length === 0 && <p className="soft">시연 웹캠 정보를 불러오는 중이에요.</p>}
+          {cameras.length === 0 && <p className="soft">웹캠 정보 없음</p>}
         </div>
       </section>
-
-      <footer className="flex items-center gap-[1.6em] border-t border-[var(--w-line)] pt-[0.8em] text-[1.05em]">
-        <span>
-          오늘 신고 <span className="mono display">{today.length}</span>건
-        </span>
-        <span>
-          분석 완료 <span className="mono">{today.filter((r) => r.job.state === "completed").length}</span>건
-        </span>
-        {metrics?.latency_seconds && (
-          <span>
-            평균 처리 <span className="mono">{metrics.latency_seconds.mean.toFixed(1)}</span>초
-          </span>
-        )}
-        {reduction !== null && (
-          <span>
-            전체 분석보다 프레임 <span className="mono" style={{ color: "var(--w-beacon)" }}>{Math.round(reduction * 100)}%</span> 적게 처리
-          </span>
-        )}
-        <span className="soft ml-auto">신고자 개인정보와 신고자 사진은 이 화면에 나오지 않아요.</span>
-      </footer>
     </main>
   );
 }

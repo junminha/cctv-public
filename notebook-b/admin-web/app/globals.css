@@ -110,50 +110,90 @@ body {
   display: none;
 }
 
-/* Exhibition wall (/live): booth TV seen from 2-3 m. Sizes scale with the screen width. */
+/* Live analysis log (/live): same harbour-chart palette as the admin console; only camera frames stay dark. */
 .wall {
-  --w-night: #0b1f2c;
-  --w-panel: #102b3e;
-  --w-line: #23465c;
-  --w-text: #e8f1f2;
-  --w-soft: #8fa9b6;
-  --w-beacon: #f26a1b;
-  --w-tide: #19b3b0;
-  --w-amber: #e0a23a;
+  --w-night: var(--chart);
+  --w-panel: var(--surface);
+  --w-line: var(--rule);
+  --w-text: var(--ink);
+  --w-soft: var(--ink-soft);
+  --w-beacon: var(--beacon);
+  --w-tide: var(--tide);
+  --w-amber: var(--amber);
+  --w-report: #1d5fa6;
+  --w-sunk: #f4f7f6;
   font-size: clamp(14px, 1.12vw, 30px);
-  background: radial-gradient(120% 90% at 20% 0%, #12324a 0%, var(--w-night) 60%);
+  background: var(--chart);
   color: var(--w-text);
   font-family: var(--font-sans);
 }
 .wall .display { font-family: var(--font-display); letter-spacing: 0.01em; }
 .wall .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-.wall .panel { background: color-mix(in srgb, var(--w-panel) 92%, transparent); border: 1px solid var(--w-line); border-radius: 1.1em; }
+.wall .panel { background: var(--w-panel); border: 1px solid var(--w-line); border-radius: .9em; }
 .wall .soft { color: var(--w-soft); }
+.wall .eyebrow { font-size: .9em; letter-spacing: .08em; color: var(--w-soft); }
+.wall .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* A new report announces itself once. */
+.wall .arrive { animation: wall-arrive 1.1s cubic-bezier(.2, .8, .2, 1); }
+@keyframes wall-arrive {
+  0% { opacity: 0; transform: translateY(.8em); box-shadow: 0 0 0 0 rgba(242, 106, 27, 0); }
+  35% { opacity: 1; box-shadow: 0 0 0 .35em rgba(242, 106, 27, .45); border-color: var(--w-beacon); }
+  100% { transform: none; box-shadow: 0 0 0 0 rgba(242, 106, 27, 0); }
+}
 
 .wall .rail { position: relative; display: grid; grid-template-columns: repeat(6, 1fr); }
 .wall .rail::before { content: ""; position: absolute; left: 8.33%; right: 8.33%; top: 1.05em; height: 2px; background: var(--w-line); }
 .wall .rail-fill { position: absolute; left: 8.33%; top: 1.05em; height: 2px; background: var(--w-tide); transition: width 900ms cubic-bezier(.2, .8, .2, 1); }
-.wall .station { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.5em; text-align: center; }
-.wall .node { width: 2.1em; height: 2.1em; border-radius: 50%; border: 2px solid var(--w-line); background: var(--w-night); display: grid; place-items: center; }
-.wall .node.done { background: var(--w-tide); border-color: var(--w-tide); color: var(--w-night); }
+.wall .station { position: relative; display: flex; flex-direction: column; align-items: center; gap: .35em; text-align: center; }
+.wall .node { width: 2.1em; height: 2.1em; border-radius: 50%; border: 2px solid var(--w-line); background: var(--w-panel); display: grid; place-items: center; font-weight: 700; }
+.wall .node.done { background: var(--w-tide); border-color: var(--w-tide); color: #fff; }
 .wall .node.now { border-color: var(--w-beacon); background: var(--w-beacon); box-shadow: 0 0 0 0 rgba(242, 106, 27, .6); animation: wall-ping 1.6s ease-out infinite; }
+.wall .node.fail { border-color: var(--w-amber); background: var(--w-amber); color: #fff; }
 @keyframes wall-ping { to { box-shadow: 0 0 0 1.1em rgba(242, 106, 27, 0); } }
 
-.wall .lens { position: relative; overflow: hidden; border-radius: 1em; border: 2px solid var(--w-line); background: #071621; aspect-ratio: 16 / 9; }
-.wall .lens img { width: 100%; height: 100%; object-fit: cover; display: block; transition: filter 600ms ease; }
-.wall .lens.focus { border-color: var(--w-beacon); box-shadow: 0 0 0 4px rgba(242, 106, 27, .35), 0 0 2.5em rgba(242, 106, 27, .35); }
-.wall .lens.skip img, .wall .lens.out img { filter: grayscale(1) brightness(.45); }
-/* Skipped cameras close like a shutter: the visible proof of selective analysis. */
-.wall .shutter { position: absolute; inset: 0; pointer-events: none; }
-.wall .shutter::before, .wall .shutter::after { content: ""; position: absolute; left: 0; right: 0; height: 0; background: rgba(7, 22, 33, .82); transition: height 700ms cubic-bezier(.6, 0, .2, 1); }
-.wall .shutter::before { top: 0; }
-.wall .shutter::after { bottom: 0; }
-.wall .lens.skip .shutter::before, .wall .lens.skip .shutter::after { height: 34%; }
-.wall .lens .scanline { position: absolute; left: 0; right: 0; height: 18%; background: linear-gradient(transparent, rgba(25, 179, 176, .35), transparent); animation: wall-scan 1.8s linear infinite; }
+/* Webcam lenses: a CCTV monitor with viewfinder corners and an on-screen state. */
+.wall .lens { position: relative; overflow: hidden; border-radius: .7em; background: #0f2a3d; border: 1px solid var(--w-line); color: #eef3f1; }
+.wall .lens img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transition: filter 600ms ease; }
+.wall .lens.skip img, .wall .lens.out img { filter: grayscale(1) brightness(.4); }
+.wall .lens.focus { border-color: var(--w-beacon); box-shadow: 0 0 0 3px rgba(226, 88, 11, .35); }
+.wall .lens .corner { position: absolute; width: 1.4em; height: 1.4em; border-color: rgba(232, 241, 242, .75); border-style: solid; border-width: 0; z-index: 2; }
+.wall .lens .tl { top: .55em; left: .55em; border-top-width: 3px; border-left-width: 3px; }
+.wall .lens .tr { top: .55em; right: .55em; border-top-width: 3px; border-right-width: 3px; }
+.wall .lens .bl { bottom: .55em; left: .55em; border-bottom-width: 3px; border-left-width: 3px; }
+.wall .lens .br { bottom: .55em; right: .55em; border-bottom-width: 3px; border-right-width: 3px; }
+.wall .lens.focus .corner { border-color: var(--w-beacon); width: 2em; height: 2em; }
+.wall .lens .hud { position: absolute; z-index: 3; display: flex; align-items: center; gap: .4em; padding: .2em .55em; border-radius: .4em; background: rgba(7, 22, 33, .72); font-size: .9em; }
+.wall .lens .rec { width: .55em; height: .55em; border-radius: 50%; background: #e5484d; animation: wall-blink 1.4s steps(2, start) infinite; }
+@keyframes wall-blink { to { visibility: hidden; } }
+.wall .lens .stamp { position: absolute; z-index: 3; inset: 0; display: grid; place-items: center; text-align: center; pointer-events: none; }
+.wall .shutter { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.wall .shutter::before, .wall .shutter::after { content: ""; position: absolute; left: 0; right: 0; height: 0; background: rgba(7, 22, 33, .86); transition: height 700ms cubic-bezier(.6, 0, .2, 1); }
+.wall .shutter::before { top: 0; border-bottom: 2px solid rgba(224, 162, 58, .55); }
+.wall .shutter::after { bottom: 0; border-top: 2px solid rgba(224, 162, 58, .55); }
+.wall .lens.skip .shutter::before, .wall .lens.skip .shutter::after { height: 36%; }
+.wall .lens .scanline { position: absolute; z-index: 2; left: 0; right: 0; height: 18%; background: linear-gradient(transparent, rgba(25, 179, 176, .38), transparent); animation: wall-scan 1.8s linear infinite; }
 @keyframes wall-scan { from { top: -18%; } to { top: 100%; } }
-.wall .tag { display: inline-flex; align-items: center; gap: .35em; border-radius: 999px; padding: .2em .7em; font-size: .85em; border: 1px solid var(--w-line); }
+.wall .nosignal { position: absolute; inset: 0; background: repeating-linear-gradient(135deg, #dde7e3 0 .6em, #e8efec .6em 1.2em); }
+.wall .tag { display: inline-flex; align-items: center; gap: .35em; border-radius: 999px; padding: .2em .75em; font-size: .9em; border: 1px solid var(--w-line); }
+.wall .step-howto { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1em; }
 
 @media (prefers-reduced-motion: reduce) {
-  .wall .node.now, .wall .lens .scanline { animation: none; }
+  .wall .node.now, .wall .lens .scanline, .wall .lens .rec, .wall .arrive { animation: none; }
   .wall .rail-fill, .wall .shutter::before, .wall .shutter::after, .wall .lens img { transition: none; }
 }
+
+/* Analysis log console on /live. */
+.wall .log { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: .95em; line-height: 1.55; }
+.wall .log-line { display: grid; grid-template-columns: 6.2em 4.6em 8.6em minmax(0, 1fr); gap: .6em; padding: .12em .4em; border-radius: .3em; animation: wall-line .45s ease-out; }
+.wall .log-line:hover { background: var(--chart-deep); }
+@keyframes wall-line { from { opacity: 0; transform: translateX(-.4em); } to { opacity: 1; transform: none; } }
+.wall .log-tag { font-weight: 600; white-space: nowrap; }
+.wall .log-msg { font-family: var(--font-sans); overflow-wrap: anywhere; }
+.wall .cursor { display: inline-block; width: .55em; height: 1.05em; vertical-align: -.15em; background: var(--w-beacon); animation: wall-blink 1s steps(2, start) infinite; }
+.wall .report-item { width: 100%; text-align: left; border: 1px solid transparent; border-radius: .7em; padding: .6em .75em; display: flex; flex-direction: column; gap: .2em; }
+.wall .report-item:hover { background: var(--chart); }
+.wall .report-item[aria-current="true"] { border-color: var(--w-beacon); background: var(--beacon-wash); }
+.wall .report-item:focus-visible, .wall button:focus-visible { outline: 2px solid var(--w-beacon); outline-offset: 2px; }
+.wall .pulse { width: .6em; height: .6em; border-radius: 50%; background: var(--w-beacon); animation: wall-blink 1s steps(2, start) infinite; display: inline-block; }
+@media (prefers-reduced-motion: reduce) { .wall .log-line, .wall .cursor, .wall .pulse { animation: none; } }
