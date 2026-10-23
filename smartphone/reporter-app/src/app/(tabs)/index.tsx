@@ -1,6 +1,6 @@
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import { ChevronDown, ChevronUp, MapPin, Phone, SlidersHorizontal, TriangleAlert } from 'lucide-react-native';
+import { ChevronDown, ChevronUp, MapPin, Mic, Phone, SlidersHorizontal, TriangleAlert } from 'lucide-react-native';
 import { useEffect, useState } from 'react';
 import { KeyboardAvoidingView, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -8,6 +8,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ApiError, LOCATION_KIND, reports, type NewReport } from '@/api';
 import { AttachmentPicker, KINDS, type CapturedSet } from '@/components/AttachmentPicker';
 import ChartMap from '@/components/ChartMap';
+import { clock } from '@/components/AttachmentPicker';
+import { useDictation } from '@/components/useDictation';
 import { Button, Chip, Field, Note, styles as ui } from '@/components/ui';
 import { useDraft } from '@/draft';
 import { RADIUS_M, VENUE, addressOf, coords, locate, rememberLabel } from '@/geo';
@@ -36,6 +38,9 @@ export default function Report() {
   // Taken on this screen before sending; only what the reporter chose to capture.
   const [files, setFiles] = useState<CapturedSet>({});
   const [recording, setRecording] = useState(false);
+  // Speak instead of typing: the text lands in '무슨 일인가요' and stays editable.
+  const dictation = useDictation(token, (text) => setDescription((current) => (current ? `${current} ${text}` : text)));
+  const speaking = dictation.phase !== 'idle';
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -74,6 +79,7 @@ export default function Report() {
   async function send() {
     if (!token) return router.replace('/login');
     if (recording) return setError('녹음을 끝낸 뒤 보내 주세요.');
+    if (speaking) return setError('말로 입력을 끝낸 뒤 보내 주세요.');
     if (!draft.point) return setError('위치를 확인하지 못했어요. 위치 수정에서 신고 지점을 정해 주세요.');
     setError(null);
     setBusy(true);
@@ -155,11 +161,42 @@ export default function Report() {
                 <Text style={[type.card, { color: color.ink }]}>상황 자세히 적기</Text>
                 <Text style={[type.small, { color: color.inkSoft }]}>무슨 일 · 상세 위치 · 언제 — 모두 선택</Text>
               </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="말로 입력"
+                disabled={speaking || recording}
+                onPress={() => {
+                  setOpen(true);
+                  dictation.start();
+                }}
+                style={[styles.speak, (speaking || recording) && { opacity: 0.5 }]}>
+                <Mic size={18} color={color.tide} />
+                <Text style={[type.field, { color: color.tide }]}>말로 입력</Text>
+              </Pressable>
               {open ? <ChevronUp size={24} color={color.inkSoft} /> : <ChevronDown size={24} color={color.inkSoft} />}
             </Pressable>
             {open && (
               <View style={{ gap: 18, marginTop: 16 }}>
                 <Field label="무슨 일인가요" optional multiline maxLength={4000} placeholder="예: 정문 안쪽 복도에 사람이 쓰러져 있어요" value={description} onChangeText={setDescription} />
+                {dictation.phase === 'listening' && (
+                  <View style={styles.listening} accessibilityLiveRegion="polite">
+                    <View style={[ui.row, { gap: 8 }]}>
+                      <View style={styles.liveDot} />
+                      <Text style={[type.card, { color: color.ink, flex: 1 }]}>듣고 있어요 {clock(dictation.millis)}</Text>
+                      <Text style={[type.nav, { color: color.inkSoft }]}>최대 1분</Text>
+                    </View>
+                    <View style={[ui.row, { gap: 10 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Button label="취소" variant="secondary" onPress={dictation.cancel} />
+                      </View>
+                      <View style={{ flex: 2 }}>
+                        <Button label="다 말했어요" variant="tonal" onPress={dictation.stop} />
+                      </View>
+                    </View>
+                  </View>
+                )}
+                {dictation.phase === 'writing' && <Text style={[type.small, { color: color.tide }]}>말한 내용을 글자로 바꾸는 중…</Text>}
+                {dictation.error && <Text style={[type.small, { color: color.alert }]}>{dictation.error}</Text>}
                 <Field label="상세 위치" optional maxLength={1000} placeholder="예: 공학관 2층 엘리베이터 앞" value={details} onChangeText={setDetails} />
                 <View style={{ gap: 8 }}>
                   <View style={ui.row}>
@@ -182,7 +219,7 @@ export default function Report() {
                 <Text style={[type.field, { color: color.ink }]}>함께 보낼 자료</Text>
                 <Text style={[type.nav, { color: color.inkSoft }]}>필요한 것만 눌러서 찍어요</Text>
               </View>
-              <AttachmentPicker kinds={buttons} files={files} onChange={setFiles} onRecording={setRecording} />
+              <AttachmentPicker kinds={buttons} files={files} onChange={setFiles} onRecording={setRecording} disabled={speaking} />
             </View>
           ) : (
             <Note icon={TriangleAlert}>
@@ -244,6 +281,9 @@ const styles = StyleSheet.create({
   },
   sos: { backgroundColor: color.alertWash, borderRadius: 14, paddingVertical: 10, paddingLeft: 14, paddingRight: 10, gap: 8 },
   call: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: color.alert, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 9 },
+  speak: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: color.tideWash, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 8 },
+  listening: { backgroundColor: color.surface, borderColor: color.tide, borderWidth: 1, borderRadius: 16, padding: 14, gap: 12 },
+  liveDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: color.alert },
   details: { backgroundColor: color.surface, borderColor: color.rule, borderWidth: 1, borderRadius: 16, padding: 16, paddingRight: 12 },
   dock: { backgroundColor: color.surface, borderTopColor: color.rule, borderTopWidth: 1, paddingHorizontal: 24, paddingVertical: 14, gap: 12 },
   manifest: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: color.beaconWash, borderRadius: 10, paddingLeft: 8, paddingRight: 10, paddingVertical: 4 },

@@ -95,19 +95,40 @@ export const reports = {
   get: (token: string, id: string) => request<ReportView>(`/api/v1/reports/${id}`, { token }),
 };
 
+type FilePart = { uri: string; name: string; type: string };
+
+async function filePart(form: FormData, file: FilePart) {
+  // React Native uploads a {uri, name, type} descriptor; a browser needs the actual Blob.
+  // Pass exactly uri/name/type: React Native spreads this object into the native request,
+  // and extra screen state (progress, labels…) makes Android fail before anything is sent.
+  if (Platform.OS === 'web') form.append('file', await (await fetch(file.uri)).blob(), file.name);
+  else form.append('file', { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
+}
+
+// Speak instead of typing: B transcribes the recording (OpenAI) and returns the text.
+export async function dictate(token: string, file: FilePart): Promise<string> {
+  const form = new FormData();
+  await filePart(form, file);
+  try {
+    const result = await request<{ text: string }>('/api/v1/reports/dictation', { method: 'POST', token, body: form });
+    return result.text;
+  } catch (error) {
+    if (error instanceof ApiError && (error.status === 503 || error.status === 429)) {
+      throw new ApiError(error.status, error.status === 503 ? '지금은 말로 입력할 수 없어요. 직접 적어 주세요.' : '말로 입력을 너무 많이 했어요. 잠시 뒤 다시 해 주세요.');
+    }
+    throw error;
+  }
+}
+
 // XHR (not fetch) so the upload can report progress.
 export async function uploadAttachment(
   token: string,
   reportId: string,
-  file: { uri: string; name: string; type: string },
+  file: FilePart,
   onProgress: (ratio: number) => void,
 ): Promise<void> {
   const form = new FormData();
-  // React Native uploads a {uri, name, type} descriptor; a browser needs the actual Blob.
-  if (Platform.OS === 'web') form.append('file', await (await fetch(file.uri)).blob(), file.name);
-  // Pass exactly uri/name/type: React Native spreads this object into the native request,
-  // and extra screen state (progress, labels…) makes Android fail before anything is sent.
-  else form.append('file', { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
+  await filePart(form, file);
   form.append('consent', 'true');
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();

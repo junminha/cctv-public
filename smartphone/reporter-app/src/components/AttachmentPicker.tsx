@@ -26,12 +26,15 @@ export function AttachmentPicker({
   files,
   onChange,
   onRecording,
+  disabled = false,
 }: {
   kinds: AttachmentKind[];
   files: CapturedSet;
   onChange: (next: CapturedSet) => void;
   // Lets the screen hold its send button while a recording is open.
   onRecording?: (recording: boolean) => void;
+  // e.g. while voice input is listening: one microphone user at a time.
+  disabled?: boolean;
 }) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
   const recorderState = useAudioRecorderState(recorder);
@@ -100,9 +103,9 @@ export function AttachmentPicker({
               key={key}
               accessibilityRole="button"
               accessibilityLabel={file ? `${title} 다시 ${key === 'audio' ? '녹음' : '촬영'}` : `${title} ${key === 'audio' ? '녹음' : '촬영'}`}
-              disabled={recording}
+              disabled={recording || disabled}
               onPress={() => capture(key)}
-              style={[styles.tile, file && styles.tileOn, recording && { opacity: 0.5 }]}>
+              style={[styles.tile, file && styles.tileOn, (recording || disabled) && { opacity: 0.5 }]}>
               <View style={[ui.row, { justifyContent: 'space-between' }]}>
                 <Icon size={28} color={file ? color.beacon : color.inkSoft} />
                 {file ? (

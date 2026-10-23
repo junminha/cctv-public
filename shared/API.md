@@ -184,11 +184,14 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 | GET | `/api/v1/reports` | 신고자, 본인 신고 목록(최신순, limit≤100, offset) |
 | GET | `/api/v1/reports/{id}` | 신고 소유자·관리자, 신고 본문·위치·첨부 메타데이터·작업 상태(`params` 제외) |
 | POST | `/api/v1/admin/reporters/{username}/password` | 관리자, `{password}` 비밀번호 초기화, 기존 토큰 모두 폐기 204 |
+| POST | `/api/v1/reports/dictation` | 신고자·관리자, multipart `file`(음성) → `{text, source}`. 말로 신고 내용 입력용 |
 
 - 아이디: 영문 소문자·숫자 4~20자. 비밀번호: 8~128자. 중복 아이디 409, 형식 위반 422.
 - 비밀번호는 scrypt 해시, 토큰은 SHA-256 해시만 DB에 저장한다. 원문은 발급 응답에서 한 번만 반환한다.
 - 로그인 실패는 아이디·접속 주소별로 10분에 5회까지, 넘으면 10분간 429. 가입은 접속 주소별 1시간에 30회.
   B는 loopback만 열고 외부 요청은 Tailscale Funnel을 거치므로, 접속 주소는 Funnel이 넣는 `X-Forwarded-For`(마지막 값)를 쓴다.
+- 말로 입력(dictation): 음성(WAV/MP3/M4A/WebM, 25MiB 이하)을 OpenAI 전사로 글자로 바꿔 돌려준다. 음성 파일은 저장하지 않고
+  전사 후 바로 지운다. 신고자별 1시간에 30회, 넘으면 429. OpenAI 키가 없거나 전사에 실패하면 503(앱은 직접 입력 안내).
 - 인터넷 공개(Tailscale Funnel)는 `/api/v1/auth`, `/api/v1/reports` 경로만 B로 전달한다. 관리자·agent API와 WebSocket은 공개하지 않는다.
 - 신고자 subject는 `reporter:<username>`이다. 기존 비밀 설정 파일의 토큰도 계속 사용할 수 있다.
 - 신고 입력 변경: `description`은 0~4000자로 선택(위치만 신고 가능). 선택 `gps_latitude`, `gps_longitude`,

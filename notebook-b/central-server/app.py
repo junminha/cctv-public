@@ -5,6 +5,7 @@ import hmac
 from pathlib import Path as FilePath
 import secrets
 import statistics
+import tempfile
 import threading
 import time
 from typing import Annotated
@@ -16,9 +17,9 @@ from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from accounts import Accounts
+from accounts import Accounts, RateLimit
 from adapter import Adapter, AdapterError
-from attachments import Attachments
+from attachments import LIMITS, Attachments, sniff
 from clips import Clips
 from intelligence import Intelligence
 from media import snapshot as capture_snapshot
@@ -181,6 +182,35 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
     @app.get('/api/v1/reports/{report_id}')
     def my_report(report_id: str, identity: Annotated[dict, Depends(role('reporter', 'admin'))]):
         return reporter_view(owned_report(report_id, identity))
+
+    dictations = RateLimit(30, 3600)
+
+    @app.post('/api/v1/reports/dictation')
+    def dictation(identity: Annotated[dict, Depends(role('reporter', 'admin'))], file: Annotated[UploadFile, File()]):
+        """Speak instead of typing: transcribe a short recording into report text. Audio is not kept."""
+        if dictations.blocked(identity['subject']):
+            raise HTTPException(429, 'Too many voice inputs; try again later')
+        if not app.state.intelligence.available:
+            raise HTTPException(503, 'Voice input needs the OpenAI key on B')
+        head = file.file.read(64)
+        detected = sniff(head, file.content_type)
+        if detected is None or detected[0] != 'audio':
+            raise HTTPException(415, 'Only WAV/MP3/M4A/WebM audio')
+        dictations.hit(identity['subject'])
+        with tempfile.TemporaryDirectory(dir=runtime) as folder:
+            path = FilePath(folder) / ('dictation' + detected[2])
+            size = len(head)
+            with path.open('wb') as output:
+                output.write(head)
+                while chunk := file.file.read(1024 * 1024):
+                    size += len(chunk)
+                    if size > LIMITS['audio']:
+                        raise HTTPException(413, 'Voice input is limited to 25 MiB')
+                    output.write(chunk)
+            result = app.state.intelligence.transcribe(path)
+        if not result['text']:
+            raise HTTPException(503, 'Speech could not be transcribed')
+        return {'text': result['text'].strip(), 'source': result['source']}
 
     @app.post('/api/v1/reports', status_code=201)
     def report(payload: ReportInput, identity: Annotated[dict, Depends(role('reporter'))]):

@@ -153,3 +153,28 @@ def test_rate_limits_use_the_forwarded_caller_address(client):  # noqa: F811
     good = {'username': 'busansafe01', 'password': PASSWORD}
     assert client.post('/api/v1/auth/login', json=good, headers={'X-Forwarded-For': '203.0.113.7'}).status_code == 429
     assert client.post('/api/v1/auth/login', json=good, headers={'X-Forwarded-For': '198.51.100.9'}).status_code == 200
+
+
+def test_dictation_transcribes_without_keeping_audio(client):  # noqa: F811
+    token = signup(client)
+    wav = b'RIFF' + b'\x24\x00\x00\x00' + b'WAVEfmt ' + b'\x00' * 40
+    url = '/api/v1/reports/dictation'
+    # No OpenAI key: the app is told to type instead.
+    assert client.post(url, headers=auth(token), files={'file': ('v.wav', wav, 'audio/wav')}).status_code == 503
+    seen = []
+
+    class Speech:
+        available = True
+
+        def transcribe(self, path):
+            seen.append(Path(path))
+            return {'text': ' 정문 복도에 사람이 쓰러져 있어요 ', 'source': 'test', 'warnings': []}
+    client.app.state.intelligence = Speech()
+    assert client.post(url, files={'file': ('v.wav', wav, 'audio/wav')}).status_code == 401
+    photo = b'\xff\xd8\xff' + b'0' * 50
+    assert client.post(url, headers=auth(token), files={'file': ('x.jpg', photo, 'image/jpeg')}).status_code == 415
+    response = client.post(url, headers=auth(token), files={'file': ('v.wav', wav, 'audio/wav')})
+    assert response.status_code == 200 and response.json()['text'] == '정문 복도에 사람이 쓰러져 있어요'
+    # The recording is deleted after transcription and creates no report.
+    assert seen and not seen[-1].exists()
+    assert client.get('/api/v1/reports', headers=auth(token)).json()['reports'] == []
