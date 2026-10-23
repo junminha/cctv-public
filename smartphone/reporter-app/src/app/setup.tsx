@@ -24,7 +24,12 @@ export default function Setup() {
       <Sheet>
         <Card style={{ gap: 10, padding: 16 }}>
           <Text style={[type.card, { color: color.ink }]}>첨부 자료 사용 동의</Text>
-          {['직접 촬영하거나 녹음한 자료만 보내요', '신고 확인과 AI 상황 분석에만 써요', '설정에서 언제든 바꿀 수 있어요'].map((line) => (
+          {[
+            '직접 촬영하거나 녹음한 자료만 보내요',
+            '신고 확인과 AI 상황 분석에만 써요',
+            '분석을 위해 신고 내용과 자료가 OpenAI로 전송돼요',
+            '설정에서 언제든 바꿀 수 있어요',
+          ].map((line) => (
             <View key={line} style={[styles.row, { gap: 8 }]}>
               <Check size={18} color={color.tide} />
               <Text style={[type.small, { color: color.ink, flex: 1 }]}>{line}</Text>

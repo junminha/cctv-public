@@ -25,7 +25,7 @@ export default function Settings() {
       </View>
       <ScrollView contentContainerStyle={{ padding: 24, paddingTop: 8, gap: 14 }}>
         <Card style={{ gap: 2 }}>
-          <Toggle label="첨부 자료 사용 동의" sub="끄면 신고 화면에 첨부 타일이 보이지 않아요" on={prefs.consent} onChange={(on) => updatePrefs({ consent: on })} />
+          <Toggle label="첨부 자료 사용 동의" sub="분석을 위해 OpenAI로 전송돼요. 끄면 첨부 타일이 보이지 않아요" on={prefs.consent} onChange={(on) => updatePrefs({ consent: on })} />
           <View style={styles.divider} />
           <Text style={[type.field, { color: color.inkSoft, paddingTop: 12, paddingBottom: 4 }]}>신고할 때 미리 체크</Text>
           <Toggle icon={Camera} label="사진" on={prefs.defaults.photo} onChange={(on) => setDefault('photo', on)} />
