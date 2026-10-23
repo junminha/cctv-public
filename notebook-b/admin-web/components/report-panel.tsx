@@ -100,6 +100,7 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
   const [message, setMessage] = useState("");
   const [clips, setClips] = useState<Clip[]>([]);
   const [busy, setBusy] = useState("");
+  const [media, setMedia] = useState(true);
 
   useEffect(() => {
     api<{ clips: Clip[] }>(`/api/v1/admin/reports/${detail.report_id}/clips`).then((value) => setClips(value.clips)).catch(() => {});
@@ -299,6 +300,18 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
             className="flex-1 rounded border border-ink px-3 py-1.5 text-sm disabled:opacity-40">종결</button>
         </div>
         {message && <p role="status" className="mt-2 text-xs">{message}</p>}
+      </Section>
+
+      <Section title="외부 제출" aside="다운로드는 감사 기록에 남습니다">
+        <a href={bPath(`/api/v1/admin/reports/${detail.report_id}/package.zip${media ? "" : "?media=false"}`)} download
+          className="block w-full rounded bg-ink px-3 py-1.5 text-center text-sm font-medium text-white hover:brightness-110">
+          증거 묶음 다운로드 (ZIP)
+        </a>
+        <label className="mt-2 flex items-center gap-1.5 text-xs text-ink-soft">
+          <input type="checkbox" checked={media} onChange={(event) => setMedia(event.target.checked)} />
+          첨부·근거 프레임·보존 영상 포함 (해제하면 기록 문서만)
+        </label>
+        <p className="mt-1 text-xs text-ink-soft">신고·분석·처리 기록, 감사 기록, 파일별 SHA256 목록(manifest.json)이 함께 들어갑니다.</p>
       </Section>
 
       <Section title="처리 기록">

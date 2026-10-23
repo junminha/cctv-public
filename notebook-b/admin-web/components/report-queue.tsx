@@ -1,16 +1,15 @@
 "use client";
 
-import type { ReportSummary } from "@/lib/api";
+import { bPath, type ReportSummary } from "@/lib/api";
 import { INCIDENT, jobLabel, kstTime, OUTCOME, shortId, sourceLabel } from "@/lib/labels";
 
 const CONNECTION = { connecting: "연결 중", live: "실시간", offline: "재연결 중" } as const;
 
-export function ReportQueue({ reports, selectedId, connection, onSelect, onNew }: {
+export function ReportQueue({ reports, selectedId, connection, onSelect }: {
   reports: ReportSummary[];
   selectedId: string | null;
   connection: keyof typeof CONNECTION;
   onSelect: (id: string) => void;
-  onNew: () => void;
 }) {
   return (
     <div>
@@ -21,12 +20,13 @@ export function ReportQueue({ reports, selectedId, connection, onSelect, onNew }
             ● {CONNECTION[connection]}
           </span>
         </div>
-        <button onClick={onNew} className="mt-3 w-full rounded bg-beacon px-3 py-2 text-sm font-bold text-white hover:brightness-95">
-          모의 신고 접수
-        </button>
+        <a href={bPath("/api/v1/admin/exports/reports.csv")} download
+          className="mt-3 block w-full rounded bg-beacon px-3 py-2 text-center text-sm font-bold text-white hover:brightness-95">
+          CSV 내보내기
+        </a>
       </div>
       {reports.length === 0 ? (
-        <p className="p-4 text-sm text-ink-soft">아직 신고가 없습니다. 모의 신고로 전체 흐름을 시연할 수 있습니다.</p>
+        <p className="p-4 text-sm text-ink-soft">아직 접수된 신고가 없습니다.</p>
       ) : (
         <ul>
           {reports.map((report) => {

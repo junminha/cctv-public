@@ -16,11 +16,13 @@ from fastapi import (Depends, FastAPI, File, Form, HTTPException, Path, Query, R
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from starlette.background import BackgroundTask
 
 from accounts import Accounts, RateLimit
 from adapter import Adapter, AdapterError
 from attachments import LIMITS, Attachments, sniff
 from clips import Clips
+from exports import KST, report_package, reports_csv
 from intelligence import Intelligence
 from media import snapshot as capture_snapshot
 from models import (AnalyzeInput, CameraId, CredentialsInput, DEMO_CAMERA_IDS, LocationInput, PasswordResetInput,
@@ -287,6 +289,47 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
         if not path.is_file():
             raise HTTPException(404, 'Artifact not found')
         return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=60'})
+
+    @app.get('/api/v1/admin/exports/reports.csv')
+    def export_reports(identity: Annotated[dict, Depends(admin)], start: UtcDatetime | None = None,
+                       end: UtcDatetime | None = None):
+        if start is not None and end is not None and start >= end:
+            raise HTTPException(422, 'Start must precede end')
+        body = reports_csv(app.state.store.export_reports(start, end))
+        app.state.store.audit('reports_csv_exported', identity['subject'], '', '')
+        name = 'reports-' + datetime.now(KST).strftime('%Y%m%d-%H%M') + '.csv'
+        return Response(body.encode('utf-8'), media_type='text/csv; charset=utf-8',
+                        headers={'Content-Disposition': f'attachment; filename="{name}"',
+                                 'Cache-Control': 'no-store'})
+
+    @app.get('/api/v1/admin/reports/{report_id}/package.zip')
+    def export_package(report_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+                       identity: Annotated[dict, Depends(admin)], media: bool = True):
+        find_report(report_id)
+        store = app.state.store
+        detail, clips = store.detail(report_id), store.clips(report_id)
+        sources = {}
+        for row in detail['attachments']:
+            path = app.state.attachments.folder / report_id / row['stored_name']
+            sources['attachments/' + row['stored_name']] = (path, row['sha256'])
+        for row in clips:
+            sources[f"clips/{row['clip_id']}.mp4"] = (app.state.clips.folder / (row['clip_id'] + '.mp4'), row['sha256'])
+        analysis = app.state.analysis_dir / report_id
+        if analysis.is_dir():
+            for path in sorted(analysis.rglob('*')):
+                if path.is_file():
+                    sources['analysis/' + path.relative_to(analysis).as_posix()] = (path, None)
+        # Record the export first so the package's own audit trail includes it.
+        store.audit('report_package_exported', identity['subject'], report_id, '')
+        try:
+            target = report_package(runtime / 'exports', detail, clips, store.audit_events(report_id), sources,
+                                    identity['subject'], media)
+        except OSError:
+            raise HTTPException(503, 'B export storage is unavailable') from None
+        name = f'report-{report_id[:8]}-' + datetime.now(KST).strftime('%Y%m%d-%H%M') + '.zip'
+        return FileResponse(target, media_type='application/zip', filename=name,
+                            headers={'Cache-Control': 'no-store'},
+                            background=BackgroundTask(target.unlink, missing_ok=True))
 
     @app.get('/api/v1/admin/metrics', dependencies=[Depends(admin)])
     def metrics():

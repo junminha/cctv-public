@@ -202,3 +202,17 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
   분석 중이면 끝난 뒤 한 번 다시 실행한다(`analysis_rerun` 이벤트).
 - 분석 순서: 음성 첨부를 먼저 전사하고, 신고문·상세 위치·전사문을 합쳐 사건 유형을 분류한다.
   사진 첨부도 YOLO·MediaPipe로 관찰하고(`phone[].analysis`), 근거 이미지는 `artifacts/phone/{attachment_id}/evidence-0N.jpg`.
+
+## B 신고 내보내기 (v0.4)
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| GET | `/api/v1/admin/exports/reports.csv?start=&end=` | 관리자, 접수 신고 전체 CSV. `start`/`end`(UTC ISO, 선택)는 접수 시각 [start, end) 필터. 감사 `reports_csv_exported` |
+| GET | `/api/v1/admin/reports/{id}/package.zip?media=true` | 관리자, 신고 1건 증거 묶음 ZIP. 감사 `report_package_exported` |
+
+- CSV: UTF-8 BOM, 시각은 KST 표기. 시민 입력이 `= + - @`, 탭, CR로 시작하면 앞에 `'`를 붙여 수식 실행을 막는다.
+  열: 신고 ID, 접수/발생 시각, 출처, 사건 유형, 내용, 좌표·위치 구분·반경, 분석 상태·단계·결과, 선정 카메라, 요약, 권장 조치, 첨부 수, 확인/종결 시각·담당자·메모.
+- ZIP: `report.json`(관리자 신고 상세), `clips.json`, `audit.json`(해당 신고 감사 기록, 이번 내보내기 포함), `manifest.json`.
+  `media=true`(기본)이면 `attachments/`, `clips/`(보존 영상), `analysis/`(근거 프레임·분석 클립 캐시)를 함께 넣는다.
+  `manifest.files[]`는 각 파일의 `bytes`, `sha256`을 담고, 첨부·보존 영상은 저장 시 기록한 해시와 비교한 `matches_recorded_sha256`을 추가한다.
+  파일이 없으면 실패 대신 `manifest.missing[]`에 적는다. 임시 ZIP은 `runtime/exports`에 만들고 응답 후 지운다.
