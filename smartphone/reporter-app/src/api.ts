@@ -105,7 +105,9 @@ export async function uploadAttachment(
   const form = new FormData();
   // React Native uploads a {uri, name, type} descriptor; a browser needs the actual Blob.
   if (Platform.OS === 'web') form.append('file', await (await fetch(file.uri)).blob(), file.name);
-  else form.append('file', file as unknown as Blob);
+  // Pass exactly uri/name/type: React Native spreads this object into the native request,
+  // and extra screen state (progress, labels…) makes Android fail before anything is sent.
+  else form.append('file', { uri: file.uri, name: file.name, type: file.type } as unknown as Blob);
   form.append('consent', 'true');
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
