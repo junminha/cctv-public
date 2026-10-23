@@ -101,6 +101,9 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
   const [clips, setClips] = useState<Clip[]>([]);
   const [busy, setBusy] = useState("");
   const [media, setMedia] = useState(true);
+  const [radius, setRadius] = useState(detail.radius_m);
+  const [radiusNote, setRadiusNote] = useState("");
+  const radiusValid = Number.isFinite(radius) && radius >= 1 && radius <= 5000;
 
   useEffect(() => {
     api<{ clips: Clip[] }>(`/api/v1/admin/reports/${detail.report_id}/clips`).then((value) => setClips(value.clips)).catch(() => {});
@@ -115,6 +118,20 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
       onChanged();
     } catch (reason) {
       setMessage(reason instanceof Error ? reason.message : "요청하지 못했습니다.");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function applyRadius() {
+    setBusy("radius");
+    setRadiusNote("");
+    try {
+      await api(`/api/v1/admin/reports/${detail.report_id}/radius`, { method: "PUT", json: { radius_m: radius } });
+      setRadiusNote("적용했습니다. 후보 카메라에 반영하려면 다시 분석하세요.");
+      onChanged();
+    } catch (reason) {
+      setRadiusNote(reason instanceof Error ? reason.message : "반경을 바꾸지 못했습니다.");
     } finally {
       setBusy("");
     }
@@ -144,6 +161,24 @@ export function ReportPanel({ detail, live, cameras, onChanged }: {
         <p className="mt-2 text-sm">{detail.description}</p>
         {detail.details && <p className="mt-1 text-xs text-ink-soft">상세 위치: {detail.details}</p>}
         {detail.occurred_at && <p className="mt-1 text-xs text-ink-soft">신고된 발생 시각: {kst(detail.occurred_at)}</p>}
+        <div className="mt-3 rounded border border-rule px-3 py-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium">검색 반경</span>
+            <span className="font-mono text-ink-soft">현재 {detail.radius_m}m</span>
+          </div>
+          <input type="range" min={50} max={5000} step={50} value={Math.min(Math.max(radius, 50), 5000)}
+            onChange={(event) => setRadius(Number(event.target.value))} aria-label="검색 반경" className="mt-1 w-full accent-[#1d5fa6]" />
+          <div className="mt-1 flex items-center gap-2">
+            <input type="number" min={1} max={5000} value={Number.isFinite(radius) ? radius : ""}
+              onChange={(event) => setRadius(event.target.valueAsNumber)}
+              className="w-24 rounded border border-rule bg-surface px-2 py-1 font-mono text-sm" />
+            <span className="text-xs text-ink-soft">m (1~5000)</span>
+            <button disabled={!radiusValid || radius === detail.radius_m || busy !== ""}
+              onClick={applyRadius}
+              className="ml-auto rounded bg-[#1d5fa6] px-3 py-1 text-sm font-medium text-white hover:brightness-110 disabled:opacity-40">적용</button>
+          </div>
+          {radiusNote && <p role="status" className="mt-1 text-xs">{radiusNote}</p>}
+        </div>
         <div className="mt-3"><StageTrack live={live} /></div>
         {outcome && (
           <p className={`mt-3 rounded px-3 py-2 text-sm font-bold ${outcome.tone === "alert" ? "bg-beacon-wash text-beacon" : outcome.tone === "warn" ? "bg-amber-wash text-amber" : "bg-chart text-ink-soft"}`}>

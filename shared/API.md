@@ -183,3 +183,11 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
   `media=true`(기본)이면 `attachments/`, `clips/`(보존 영상), `analysis/`(근거 프레임·분석 클립 캐시)를 함께 넣는다.
   `manifest.files[]`는 각 파일의 `bytes`, `sha256`을 담고, 첨부·보존 영상은 저장 시 기록한 해시와 비교한 `matches_recorded_sha256`을 추가한다.
   파일이 없으면 실패 대신 `manifest.missing[]`에 적는다. 임시 ZIP은 `runtime/exports`에 만들고 응답 후 지운다.
+
+## B 검색 반경 조정
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| PUT | `/api/v1/admin/reports/{id}/radius` | 관리자, `{radius_m}`(1~5000). 신고의 검색 반경을 바꾸고 `radius_changed` 이벤트·`report_radius_changed` 감사를 남긴다 |
+
+- 후보 카메라(`candidates`)는 저장된 반경으로 다시 계산된다. 이미 끝난 분석 결과의 순위는 다시 분석해야 바뀐다.

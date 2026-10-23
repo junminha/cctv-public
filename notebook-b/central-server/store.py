@@ -183,6 +183,21 @@ class Store:
                                     (report_id,)).fetchall()
         return [json.loads(row['metadata']) for row in rows]
 
+    def set_radius(self, report_id, radius, actor):
+        now = utc()
+        with self.connect() as database:
+            row = database.execute('SELECT payload FROM reports WHERE id=?', (report_id,)).fetchone()
+            payload = json.loads(row['payload'])
+            previous, payload['radius_m'] = payload['radius_m'], radius
+            database.execute('UPDATE reports SET payload=? WHERE id=?',
+                             (json.dumps(payload, ensure_ascii=False), report_id))
+            database.execute('INSERT INTO events VALUES (?,?,?,?,?)',
+                             (report_id, now, 'radius_changed', f'검색 반경 {previous:g}m → {radius:g}m',
+                              json.dumps({'by': actor, 'from': previous, 'to': radius}, ensure_ascii=False)))
+            database.execute('INSERT INTO audit_events VALUES (?,?,?,?,?)',
+                             (now, 'report_radius_changed', actor, report_id, ''))
+        return self.report(report_id)
+
     def review(self, report_id, action, actor, note):
         now = utc()
         prefix, column = ('confirmed', 'confirm_note') if action == 'confirm' else ('closed', 'close_note')

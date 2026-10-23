@@ -104,3 +104,21 @@ def test_package_bundles_hashed_evidence_and_flags_tampering(client, settings):
     lean = zipfile.ZipFile(io.BytesIO(client.get(package, params={'media': 'false'}, headers=auth(ADMIN)).content))
     assert set(lean.namelist()) == {'report.json', 'clips.json', 'audit.json', 'manifest.json'}
     assert audit(settings).count('report_package_exported') == 3
+
+
+def test_admin_can_change_search_radius_and_it_is_recorded(client, settings):
+    report_id = submit(client)['report_id']
+    url = f'/api/v1/admin/reports/{report_id}/radius'
+    assert client.put(url, json={'radius_m': 300}, headers=auth(REPORTER)).status_code == 403
+    for bad in ({'radius_m': 0}, {'radius_m': 5001}, {'radius_m': 'wide'}, {}):
+        assert client.put(url, json=bad, headers=auth(ADMIN)).status_code == 422
+    assert client.put('/api/v1/admin/reports/' + '0' * 32 + '/radius', json={'radius_m': 300},
+                      headers=auth(ADMIN)).status_code == 404
+    response = client.put(url, json={'radius_m': 750}, headers=auth(ADMIN))
+    assert response.status_code == 200
+    assert response.json()['radius_m'] == 750
+    detail = client.get('/api/v1/admin/reports/' + report_id, headers=auth(ADMIN)).json()
+    assert detail['radius_m'] == 750
+    assert detail['events'][-1]['type'] == 'radius_changed'
+    assert detail['events'][-1]['data'] == {'by': 'operator', 'from': 200, 'to': 750}
+    assert 'report_radius_changed' in audit(settings)

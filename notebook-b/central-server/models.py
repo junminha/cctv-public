@@ -125,6 +125,11 @@ class AnalyzeInput(BaseModel):
     top_k: StrictInt = Field(default=1, ge=1, le=3)
 
 
+class RadiusInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    radius_m: float = Field(ge=1, le=5000, allow_inf_nan=False)
+
+
 class ReviewInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     note: str = Field(default='', max_length=2000)
