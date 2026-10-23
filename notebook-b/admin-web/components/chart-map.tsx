@@ -9,7 +9,7 @@ import { api, type AnalysisCamera, type Camera, type ReportSummary } from "@/lib
 const BUSAN: LatLngExpression = [35.1336, 129.103]; // PKNU Daeyeon campus, exhibition venue
 const PUBLIC_MIN_ZOOM = 14;
 // Canvas rendering cannot resolve CSS variables, so mirror the globals.css tokens here.
-const COLORS = { beacon: "#e2580b", report: "#1d5fa6", tide: "#0d7f81", buoy: "#8a9ba8", signal: "#dc2626", ink: "#0f2a3d", "ink-soft": "#4b6271" } as const;
+const COLORS = { beacon: "#e2580b", report: "#2563eb", tide: "#0d7f81", buoy: "#8a9ba8", signal: "#dc2626", ink: "#0f2a3d", "ink-soft": "#4b6271" } as const;
 const css = (name: keyof typeof COLORS) => COLORS[name];
 
 type PublicCamera = { id: string; name: string; district: string; purpose: string; latitude: number; longitude: number };

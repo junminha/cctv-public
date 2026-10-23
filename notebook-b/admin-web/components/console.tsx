@@ -72,7 +72,7 @@ export function Console() {
           <div className="pointer-events-auto rounded border border-rule bg-surface/95 px-3 py-2 text-xs shadow-sm">
             <p className="mb-1 font-medium">지도 범례</p>
             <ul className="space-y-1 text-ink-soft">
-              <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-[#1d5fa6]" />신고 지점과 검색 반경</li>
+              <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-blue-600" />신고 지점과 검색 반경</li>
               <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
               <li className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full bg-signal ring-1 ring-white" />
