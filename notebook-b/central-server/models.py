@@ -34,13 +34,39 @@ UtcDatetime = Annotated[AwareDatetime, AfterValidator(representable_utc)]
 
 class ReportInput(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
-    description: str = Field(min_length=1, max_length=4000)
+    # Optional so an urgent report can carry only its location.
+    description: str = Field(default='', max_length=4000)
     latitude: Latitude
     longitude: Longitude
     location_kind: Literal['real', 'demo'] = 'real'
     details: str = Field(default='', max_length=1000)
     occurred_at: UtcDatetime | None = None
     radius_m: float = Field(default=500, ge=1, le=5000, allow_inf_nan=False)
+    # Raw phone GPS; latitude/longitude above is the (possibly corrected) report point.
+    gps_latitude: Latitude | None = None
+    gps_longitude: Longitude | None = None
+    gps_accuracy_m: float | None = Field(default=None, ge=0, le=100000, allow_inf_nan=False)
+
+    @model_validator(mode='after')
+    def gps_pair(self):
+        if (self.gps_latitude is None) != (self.gps_longitude is None):
+            raise ValueError('gps_latitude and gps_longitude must be given together')
+        return self
+
+
+Username = Annotated[str, StringConstraints(pattern=r'^[a-z0-9]{4,20}$')]
+Password = Annotated[str, StringConstraints(min_length=8, max_length=128)]
+
+
+class CredentialsInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    username: Username
+    password: Password
+
+
+class PasswordResetInput(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    password: Password
 
 
 class LocationInput(BaseModel):

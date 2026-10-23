@@ -19,7 +19,6 @@ from models import DEMO_CAMERA_IDS, AnalyzeInput, PreserveInput, utc
 from vision import VisionUnavailable
 
 RECORDING_LAG_SECONDS = 70  # A lists only finalized 60 s segments.
-IMAGE_TYPES = ('image/jpeg', 'image/png', 'image/webp')
 
 
 def parse(value):
@@ -81,11 +80,14 @@ class Pipeline:
         return result
 
     def _run(self, report, params, folder, result, stage):
-        classification = self.intelligence.classify(report['description'], report.get('details', ''))
+        # Voice first: a location-only report may describe the incident only in its recording.
+        transcripts = self._transcripts(report, result)
+        context = ' '.join([report.get('details', ''), *transcripts]).strip()
+        classification = self.intelligence.classify(report.get('description', ''), context)
         result['classification'] = classification
         incident = classification['incident_type']
         stage('CLASSIFIED', 0.1)
-        transcripts, images = self._attachments(report, folder, incident, result)
+        images = self._media(report, folder, incident, result)
         try:
             self.store.sync(self.adapter.cameras())
         except AdapterError as exc:
@@ -239,34 +241,53 @@ class Pipeline:
                 return None, exc
         return call
 
-    def _attachments(self, report, folder, incident, result):
-        transcripts, images = [], []
+    def _files(self, report, result, kinds):
         for attachment in self.store.attachments(report['report_id']):
+            if attachment['kind'] not in kinds:
+                continue
             path = self.attachments_dir / report['report_id'] / attachment['stored_name']
             if not path.is_file():
                 result['warnings'].append(f"첨부 {attachment['attachment_id']} 파일 없음")
                 continue
-            if attachment['kind'] == 'audio':
-                transcribed = self.intelligence.transcribe(path)
-                transcripts.append(transcribed['text'])
-                result['phone'].append({'attachment_id': attachment['attachment_id'], 'kind': 'audio',
-                                        'transcript': transcribed['text'], 'source': transcribed['source'],
-                                        'warnings': transcribed['warnings']})
-            elif attachment['kind'] == 'video':
-                analysis = compact(self.vision.analyze_clip(path, folder / 'phone' / attachment['attachment_id'],
-                                                            sample_fps=1, max_seconds=15, incident_type=incident))
-                for evidence in analysis['evidence']:
-                    evidence['path'] = f"phone/{attachment['attachment_id']}/{evidence['file']}"
-                result['phone'].append({'attachment_id': attachment['attachment_id'], 'kind': 'video',
-                                        'analysis': analysis})
-            elif attachment['content_type'] in IMAGE_TYPES:
-                images.append(path)
-                result['phone'].append({'attachment_id': attachment['attachment_id'], 'kind': 'image'})
-        return transcripts, images[:2]
+            yield attachment, path
+
+    def _transcripts(self, report, result):
+        transcripts = []
+        for attachment, path in self._files(report, result, ('audio',)):
+            transcribed = self.intelligence.transcribe(path)
+            transcripts.append(transcribed['text'])
+            result['phone'].append({'attachment_id': attachment['attachment_id'], 'kind': 'audio',
+                                    'transcript': transcribed['text'], 'source': transcribed['source'],
+                                    'warnings': transcribed['warnings']})
+        return [text for text in transcripts if text]
+
+    def _media(self, report, folder, incident, result):
+        images = []
+        for attachment, path in self._files(report, result, ('image', 'video')):
+            output = folder / 'phone' / attachment['attachment_id']
+            entry = {'attachment_id': attachment['attachment_id'], 'kind': attachment['kind']}
+            try:
+                if attachment['kind'] == 'video':
+                    analysis = self.vision.analyze_clip(path, output, sample_fps=1, max_seconds=15,
+                                                        incident_type=incident)
+                else:
+                    images.append(path)
+                    analysis = self.vision.analyze_image(path, output, incident_type=incident)
+            except VisionUnavailable as exc:
+                # One unreadable phone file must not cost the CCTV analysis.
+                result['warnings'].append(f"첨부 {attachment['attachment_id']} 분석 불가: {exc}")
+                result['phone'].append(entry)
+                continue
+            analysis = compact(analysis)
+            for evidence in analysis['evidence']:
+                evidence['path'] = f"phone/{attachment['attachment_id']}/{evidence['file']}"
+            result['phone'].append({**entry, 'analysis': analysis})
+        return images[:2]
 
     def _summary(self, report, incident, observations, images, transcripts, result):
-        phone_findings = [f"신고자 영상: {item['finding']}" for entry in result['phone'] if entry['kind'] == 'video'
-                          for item in entry['analysis']['observations']]
+        label = {'video': '신고자 영상', 'image': '신고자 사진'}
+        phone_findings = [f"{label[entry['kind']]}: {item['finding']}" for entry in result['phone']
+                          if entry.get('analysis') for item in entry['analysis']['observations']]
         summary = self.intelligence.summarize({**report, 'incident_type': incident}, observations,
                                               image_paths=images, transcripts=transcripts)
         if phone_findings and summary.get('source') == 'local_rules':
@@ -302,3 +323,4 @@ class Worker:
                                       error=f'worker error({type(exc).__name__})')
             finally:
                 self.current = None
+                self.store.take_rerun(job['report_id'])

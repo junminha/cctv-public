@@ -53,10 +53,18 @@ class Store:
                     report_id TEXT PRIMARY KEY REFERENCES reports(id), confirmed_at TEXT, confirmed_by TEXT,
                     confirm_note TEXT, closed_at TEXT, closed_by TEXT, close_note TEXT
                 );
+                CREATE TABLE IF NOT EXISTS reporter_accounts (
+                    username TEXT PRIMARY KEY, password_hash TEXT NOT NULL, created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS reporter_tokens (
+                    token_hash TEXT PRIMARY KEY, username TEXT NOT NULL REFERENCES reporter_accounts(username),
+                    created_at TEXT NOT NULL, revoked_at TEXT
+                );
             ''')
             # Additive migrations for databases created by earlier B versions.
             for table, column, kind in (('jobs', 'params', 'TEXT'), ('jobs', 'error', 'TEXT'),
-                                        ('jobs', 'updated_at', 'TEXT'), ('cameras', 'zone', 'TEXT')):
+                                        ('jobs', 'updated_at', 'TEXT'), ('cameras', 'zone', 'TEXT'),
+                                        ('jobs', 'rerun', 'INTEGER NOT NULL DEFAULT 0')):
                 columns = {row['name'] for row in database.execute(f'PRAGMA table_info({table})')}
                 if column not in columns:
                     database.execute(f'ALTER TABLE {table} ADD COLUMN {column} {kind}')
@@ -123,12 +131,35 @@ class Store:
         now = utc()
         with self.connect() as database:
             cursor = database.execute('''UPDATE jobs SET state='queued', stage='awaiting_worker', progress=0,
-                                         params=?, error=NULL, updated_at=? WHERE report_id=? AND state!='running' ''',
+                                         params=?, error=NULL, rerun=0, updated_at=?
+                                         WHERE report_id=? AND state!='running' ''',
                                       (json.dumps(params), now, report_id))
             if cursor.rowcount:
                 database.execute('INSERT INTO events VALUES (?,?,?,?,?)',
                                  (report_id, now, 'analysis_requested', '분석 요청', json.dumps(params)))
         return cursor.rowcount > 0
+
+    def request_rerun(self, report_id):
+        """Re-run the report's last analysis now, or once the running one finishes."""
+        job = self.report(report_id)['job']
+        if job['params'] is None:
+            return False
+        if self.request_analysis(report_id, job['params']):
+            return True
+        with self.connect() as database:
+            database.execute("UPDATE jobs SET rerun=1 WHERE report_id=? AND state='running'", (report_id,))
+        return True
+
+    def take_rerun(self, report_id):
+        """After a run ends: queue the deferred re-run, if one was requested meanwhile."""
+        with self.connect() as database:
+            pending = database.execute('UPDATE jobs SET rerun=0 WHERE report_id=? AND rerun=1',
+                                       (report_id,)).rowcount
+        if pending:
+            job = self.report(report_id)['job']
+            self.request_analysis(report_id, job['params'])
+            self.event(report_id, 'analysis_rerun', '첨부 반영 재분석')
+        return bool(pending)
 
     def claim_job(self):
         with self.connect() as database:
@@ -218,6 +249,13 @@ class Store:
                 'closed': count('SELECT COUNT(*) FROM reviews WHERE closed_at IS NOT NULL'),
                 'analyses': analyses,
             }
+
+    def owner_reports(self, owner, limit, offset):
+        with self.connect() as database:
+            rows = database.execute('''SELECT id FROM reports WHERE owner=? AND source='reporter'
+                                       ORDER BY created_at DESC, id LIMIT ? OFFSET ?''',
+                                    (owner, limit, offset)).fetchall()
+        return [self.report(row['id']) for row in rows]
 
     def reports(self, limit, offset):
         with self.connect() as database:

@@ -107,6 +107,25 @@ class VisionEngine:
             capture.release()
         if not frames:
             raise VisionUnavailable('No decodable frames in the clip')
+        return self._result(frames, best, output_dir, incident_type, sample_fps, started, warnings)
+
+    def analyze_image(self, path, output_dir, *, incident_type='OTHER'):
+        """A reporter's photo: the same detectors on one frame."""
+        import cv2
+        with self.lock:
+            self.load()
+            started = time.perf_counter()
+            if self.device.startswith('cuda'):
+                self.torch.cuda.reset_peak_memory_stats()
+            image = cv2.imread(str(path))
+            if image is None:
+                raise VisionUnavailable('Image could not be opened for analysis')
+            best = []
+            frames = [self._frame(image, 0.0, incident_type, best)]
+            return self._result(frames, best, Path(output_dir), incident_type, 1.0, started, [])
+
+    def _result(self, frames, best, output_dir, incident_type, sample_fps, started, warnings):
+        import cv2
         output_dir.mkdir(parents=True, exist_ok=True)
         evidence = []
         for number, (score, timestamp, image, boxes) in enumerate(sorted(best, key=lambda row: -row[0])[:3], 1):

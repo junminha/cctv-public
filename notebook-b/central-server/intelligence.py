@@ -135,7 +135,7 @@ class Intelligence:
         if not rows:
             unverified.append('분석한 CCTV에서 신고 관련 장면 후보를 찾지 못했습니다(NOT_VISIBLE 가능).')
         return {'incident_type': report.get('incident_type', 'OTHER'),
-                'reporter_claim': report.get('description', ''), 'cctv_observations': rows,
+                'reporter_claim': report.get('description') or '(신고문 없음: 위치만 신고)', 'cctv_observations': rows,
                 'phone_observations': [f'음성 전사(자동, 오인식 가능): {text}' for text in (transcripts or []) if text],
                 'unverified_facts': unverified,
                 'recommended_next_step': '담당자가 근거 프레임과 원본 영상을 확인하고 필요 시 현장 확인을 요청하세요.',

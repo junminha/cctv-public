@@ -10,19 +10,20 @@ import time
 from typing import Annotated
 
 import httpx
-from fastapi import (Depends, FastAPI, File, Form, HTTPException, Path, Query, UploadFile, WebSocket,
+from fastapi import (Depends, FastAPI, File, Form, HTTPException, Path, Query, Request, UploadFile, WebSocket,
                      WebSocketDisconnect)
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from accounts import Accounts
 from adapter import Adapter, AdapterError
 from attachments import Attachments
 from clips import Clips
 from intelligence import Intelligence
 from media import snapshot as capture_snapshot
-from models import (AnalyzeInput, CameraId, DEMO_CAMERA_IDS, LocationInput, PreserveInput, ReportInput,
-                    ReviewInput, UtcDatetime, utc)
+from models import (AnalyzeInput, CameraId, CredentialsInput, DEMO_CAMERA_IDS, LocationInput, PasswordResetInput,
+                    PreserveInput, ReportInput, ReviewInput, Username, UtcDatetime, utc)
 from public_catalog import list_cameras as public_cameras
 from store import Store
 from vision import VisionEngine
@@ -38,6 +39,7 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
     @asynccontextmanager
     async def lifespan(app):
         app.state.store = Store(settings.database_path)
+        app.state.accounts = Accounts(app.state.store)
         with httpx.Client(timeout=10, follow_redirects=False, trust_env=False) as http:
             app.state.adapter = Adapter(settings, adapter_http if adapter_http is not None else http)
             folder = getattr(settings, 'clips_dir', runtime / 'clips')
@@ -64,11 +66,17 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
     snapshots = {}
     bearer = HTTPBearer(auto_error=False)
 
-    def principal(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
-        supplied = credentials.credentials if credentials is not None else ''
+    def supplied_token(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
+        return credentials.credentials if credentials is not None else ''
+
+    def principal(supplied: Annotated[str, Depends(supplied_token)]):
         for token, identity in settings.tokens.items():
             if hmac.compare_digest(supplied.encode('utf-8'), token.encode('utf-8')):
                 return identity
+        # Sign-up/login tokens of the citizen app (reporter role only).
+        identity = app.state.accounts.identity(supplied)
+        if identity is not None:
+            return identity
         raise HTTPException(401, 'Authentication required', headers={'WWW-Authenticate': 'Bearer'})
 
     def role(*allowed):
@@ -124,6 +132,52 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
                 'adapter_configured': bool(settings.adapter_url and settings.adapter_token),
                 'demo_camera_ids': list(DEMO_CAMERA_IDS)}
 
+    def client_address(request):
+        return request.client.host if request.client else 'unknown'
+
+    @app.post('/api/v1/auth/signup', status_code=201)
+    def signup(payload: CredentialsInput, request: Request):
+        return app.state.accounts.signup(payload.username, payload.password, client_address(request))
+
+    @app.post('/api/v1/auth/login')
+    def login(payload: CredentialsInput, request: Request):
+        return app.state.accounts.login(payload.username, payload.password, client_address(request))
+
+    @app.post('/api/v1/auth/logout', status_code=204)
+    def logout(token: Annotated[str, Depends(supplied_token)], identity: Annotated[dict, Depends(role('reporter'))]):
+        app.state.accounts.logout(token)
+        return Response(status_code=204)
+
+    @app.get('/api/v1/auth/me')
+    def me(identity: Annotated[dict, Depends(role('reporter'))]):
+        subject = identity['subject']
+        return {'username': subject.removeprefix('reporter:')}
+
+    @app.post('/api/v1/admin/reporters/{username}/password', status_code=204, dependencies=[Depends(admin)])
+    def reset_password(username: Annotated[Username, Path()], payload: PasswordResetInput):
+        app.state.accounts.reset_password(username, payload.password)
+        return Response(status_code=204)
+
+    def reporter_view(report):
+        """What a citizen may see about their own report: no CCTV, analysis or job parameters."""
+        fields = ('report_id', 'created_at', 'description', 'details', 'latitude', 'longitude', 'location_kind',
+                  'occurred_at', 'radius_m', 'gps_latitude', 'gps_longitude', 'gps_accuracy_m')
+        job = {key: report['job'][key] for key in ('state', 'stage', 'progress', 'error')}
+        attachments = [{key: value for key, value in item.items() if key in
+                        ('attachment_id', 'kind', 'content_type', 'bytes', 'created_at')}
+                       for item in app.state.store.attachments(report['report_id'])]
+        return {**{key: report.get(key) for key in fields}, 'job': job, 'attachments': attachments}
+
+    @app.get('/api/v1/reports')
+    def my_reports(identity: Annotated[dict, Depends(role('reporter'))],
+                   limit: Annotated[int, Query(ge=1, le=100)] = 50, offset: Annotated[int, Query(ge=0)] = 0):
+        return {'reports': [reporter_view(row) for row in
+                            app.state.store.owner_reports(identity['subject'], limit, offset)]}
+
+    @app.get('/api/v1/reports/{report_id}')
+    def my_report(report_id: str, identity: Annotated[dict, Depends(role('reporter', 'admin'))]):
+        return reporter_view(owned_report(report_id, identity))
+
     @app.post('/api/v1/reports', status_code=201)
     def report(payload: ReportInput, identity: Annotated[dict, Depends(role('reporter'))]):
         return intake(payload, identity, 'reporter')
@@ -145,7 +199,12 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
     @app.post('/api/v1/reports/{report_id}/attachments', status_code=201)
     def upload(report_id: str, identity: Annotated[dict, Depends(role('reporter', 'admin'))],
                file: Annotated[UploadFile, File()], consent: Annotated[bool, Form()]):
-        return app.state.attachments.save(owned_report(report_id, identity), file, consent, identity)
+        report = owned_report(report_id, identity)
+        saved = app.state.attachments.save(report, file, consent, identity)
+        # Attachments usually arrive after auto-analysis has started: analyse again with them.
+        if worker_running():
+            app.state.store.request_rerun(report_id)
+        return saved
 
     @app.get('/api/v1/reports/{report_id}/attachments/{attachment_id}')
     def attachment(report_id: str, attachment_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],

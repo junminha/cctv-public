@@ -169,3 +169,31 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 - OpenAI: B `.env`의 `OPENAI_API_KEY`. 기본 모델 `gpt-6-luna`, 전사 `gpt-transcribe`(2026-10-22 공식 문서 기준
   `gpt-4.1-mini`·`gpt-4o-mini-transcribe`는 지원 종료 예정). 키 없음·실패 시 `source=local_*`과 경고로 처리한다.
 - Live 분석은 A stream API의 RTSP URL에 B 비밀 설정의 RTSP 계정을 넣어 FFmpeg가 TCP로 읽는다. 자격증명은 응답·DB에 저장하지 않는다.
+
+## 시민 신고 앱 확장 (v0.3)
+
+사용자 결정(2026-10-23): 시민 앱은 아이디·비밀번호 회원가입으로 신고자 토큰을 받는다. 이메일·전화번호는 받지 않는다.
+설치 후 미리 로그인하고, 로그아웃 전까지 토큰을 기기 보안 저장소에 유지한다. 위급할 때 로그인 단계가 없다.
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| POST | `/api/v1/auth/signup` | 공개, `{username,password}` → 201 `{username,token}` |
+| POST | `/api/v1/auth/login` | 공개, `{username,password}` → `{username,token}` |
+| POST | `/api/v1/auth/logout` | 신고자, 현재 토큰 폐기 204 |
+| GET | `/api/v1/auth/me` | 신고자, `{username}` |
+| GET | `/api/v1/reports` | 신고자, 본인 신고 목록(최신순, limit≤100, offset) |
+| GET | `/api/v1/reports/{id}` | 신고 소유자·관리자, 신고 본문·위치·첨부 메타데이터·작업 상태(`params` 제외) |
+| POST | `/api/v1/admin/reporters/{username}/password` | 관리자, `{password}` 비밀번호 초기화, 기존 토큰 모두 폐기 204 |
+
+- 아이디: 영문 소문자·숫자 4~20자. 비밀번호: 8~128자. 중복 아이디 409, 형식 위반 422.
+- 비밀번호는 scrypt 해시, 토큰은 SHA-256 해시만 DB에 저장한다. 원문은 발급 응답에서 한 번만 반환한다.
+- 로그인 실패는 아이디·접속 주소별로 10분에 5회까지, 넘으면 10분간 429. 가입은 접속 주소별 1시간에 10회.
+- 신고자 subject는 `reporter:<username>`이다. 기존 비밀 설정 파일의 토큰도 계속 사용할 수 있다.
+- 신고 입력 변경: `description`은 0~4000자로 선택(위치만 신고 가능). 선택 `gps_latitude`, `gps_longitude`,
+  `gps_accuracy_m`(0~100000)은 휴대폰이 측정한 원래 GPS이며, `latitude/longitude`는 사용자가 지도에서 고친 최종 위치다.
+  GPS 위도·경도는 둘 다 넣거나 둘 다 생략한다.
+- 신고자 목록·상세의 작업은 `state, stage, progress, error`만 반환한다. CCTV 영상·분석 결과·근거 이미지는 반환하지 않는다.
+- 첨부 반영 재분석: 자동 분석이 설정된 신고에 첨부가 올라오면 같은 분석 조건으로 다시 분석한다.
+  분석 중이면 끝난 뒤 한 번 다시 실행한다(`analysis_rerun` 이벤트).
+- 분석 순서: 음성 첨부를 먼저 전사하고, 신고문·상세 위치·전사문을 합쳐 사건 유형을 분류한다.
+  사진 첨부도 YOLO·MediaPipe로 관찰하고(`phone[].analysis`), 근거 이미지는 `artifacts/phone/{attachment_id}/evidence-0N.jpg`.

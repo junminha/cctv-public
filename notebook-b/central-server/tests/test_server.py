@@ -92,7 +92,7 @@ def test_reporter_can_only_read_own_status(client):
 
 
 @pytest.mark.parametrize('changes', [
-    {'description': '   '}, {'description': 'x' * 4001}, {'latitude': 91},
+    {'description': 'x' * 4001}, {'latitude': 91},
     {'longitude': -181}, {'radius_m': 0}, {'radius_m': 5001},
     {'occurred_at': '2026-10-22T10:00:00'}, {'location_kind': 'invented'},
     {'latitude': None}, {'unexpected_field': 'discarding this hides client errors'},
