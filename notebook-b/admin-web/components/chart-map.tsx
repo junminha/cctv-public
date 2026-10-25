@@ -2,9 +2,9 @@
 
 import "leaflet/dist/leaflet.css";
 import { useEffect, useRef, useState } from "react";
-import { Circle, CircleMarker, MapContainer, Polyline, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
-import { latLng, type LatLngExpression, type Map as LeafletMap } from "leaflet";
-import { api, type AnalysisCamera, type Camera, type ReportSummary } from "@/lib/api";
+import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
+import { divIcon, latLng, type LatLngExpression, type Map as LeafletMap } from "leaflet";
+import { api, type AnalysisCamera, type Camera, type PublicRecommendation, type ReportSummary } from "@/lib/api";
 
 const BUSAN: LatLngExpression = [35.1336, 129.103]; // PKNU Daeyeon campus, exhibition venue
 const PUBLIC_MIN_ZOOM = 14;
@@ -27,7 +27,32 @@ export type MapProps = {
   onPick: (point: [number, number]) => void;
   onSelect: (reportId: string) => void;
   onPublicCount?: (count: { shown: number; total: number } | null) => void;
+  recommended?: PublicRecommendation[];
 };
+
+const pin = (rank: number) =>
+  divIcon({ className: "", html: `<span class="rec-pin${rank === 1 ? " top" : ""}">${rank}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+
+function Recommended({ rows }: { rows: PublicRecommendation[] }) {
+  return (
+    <>
+      {rows.map((row, index) => (
+        <Marker key={row.id} position={[row.latitude, row.longitude]} icon={pin(index + 1)} zIndexOffset={1000 - index}
+          title={`추천 ${index + 1}위 공공 CCTV ${row.name}`}>
+          <Tooltip direction="top" offset={[0, -12]}>{`${index + 1}위 · ${row.name}`}</Tooltip>
+          <Popup>
+            <strong>{index + 1}위 · {row.name}</strong>
+            <br />{row.district} · {row.purpose} · 장비 {row.device_count}대 · {Math.round(row.distance_m)}m
+            <br />위도 {row.latitude.toFixed(5)} · 경도 {row.longitude.toFixed(5)}
+            <br />장소 단서: {row.place ? `${row.place} (이름으로 추정)` : "없음"} · 적합도 {Math.round(row.score * 100)}%
+            {row.reasons.map((reason) => <span key={reason}><br />· {reason}</span>)}
+            <br /><em>위치정보 기준 · 영상 미분석</em>
+          </Popup>
+        </Marker>
+      ))}
+    </>
+  );
+}
 
 function Clicks({ picking, onPick }: { picking: boolean; onPick: MapProps["onPick"] }) {
   useMapEvents({
@@ -204,6 +229,8 @@ function LiveMap(props: MapProps) {
           />
         );
       })}
+
+      {selected && props.recommended && <Recommended rows={props.recommended} />}
 
       {props.draft && (
         <CircleMarker center={props.draft} radius={9}

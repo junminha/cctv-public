@@ -47,6 +47,12 @@ export function ReportQueue({ reports, selectedId, connection, onSelect }: {
                   </div>
                   <p className="mt-1 line-clamp-2 text-sm">{report.description}</p>
                   <div className="mt-1.5 flex items-center gap-2 text-xs">
+                    {report.priority === "urgent" && !report.review?.closed_at && (
+                      <span className={`px-1.5 py-0.5 font-bold ${report.alert_acknowledged ? "border border-signal text-signal" : "bg-signal text-white"}`}>
+                        긴급{report.alert_acknowledged ? " · 확인됨" : ""}
+                      </span>
+                    )}
+                    {report.priority === "high" && !report.review?.closed_at && <span className="border border-amber px-1.5 py-0.5 font-bold text-amber">높음</span>}
                     {report.incident_type && <span className="rounded bg-chart px-1.5 py-0.5">{INCIDENT[report.incident_type] ?? report.incident_type}</span>}
                     <span className={`font-medium ${tone}`}>
                       {report.job.state === "running" && <span className="beacon-pulse mr-1">●</span>}

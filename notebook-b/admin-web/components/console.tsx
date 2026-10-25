@@ -2,10 +2,12 @@
 
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
-import { api, type ReportDetail } from "@/lib/api";
+import { api, type Nearby, type ReportDetail } from "@/lib/api";
 import { useLive } from "@/lib/live";
+import { byUrgency } from "@/lib/urgent";
 import { ReportPanel } from "./report-panel";
 import { ReportQueue } from "./report-queue";
+import { UrgentBanner } from "./urgent-banner";
 
 const ChartMap = dynamic(() => import("./chart-map"), {
   ssr: false,
@@ -26,7 +28,7 @@ export function Console() {
   // Show the radius being dragged right away instead of waiting for the save and the next live snapshot.
   const mapSelected = selected && preview?.id === selected.report_id ? { ...selected, radius_m: preview.radius } : selected;
   // Refetch the full detail whenever the live job state for the selected report changes.
-  const jobKey = selected ? `${selected.job.state}:${selected.job.stage}:${selected.job.progress}:${selected.review?.closed_at}` : "";
+  const jobKey = selected ? `${selected.job.state}:${selected.job.stage}:${selected.job.progress}:${selected.review?.closed_at}:${selected.response_logs ?? 0}:${selected.alert_acknowledged}` : "";
 
   useEffect(() => {
     if (!selectedId) return;
@@ -42,13 +44,28 @@ export function Console() {
     setPreview(null);
   }
 
+  // Recommended public CCTV for the selected report at its current radius, numbered on the map.
+  const nearbyKey = selected ? `${selected.report_id}:${selected.radius_m}` : "";
+  const [nearby, setNearby] = useState<{ key: string; data: Nearby } | null>(null);
+  useEffect(() => {
+    if (!nearbyKey) return;
+    let alive = true;
+    api<Nearby>(`/api/v1/admin/reports/${nearbyKey.split(":")[0]}/nearby`)
+      .then((data) => alive && setNearby({ key: nearbyKey, data }))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [nearbyKey]);
+  const recommended = nearby?.key === nearbyKey ? nearby.data.public.recommended : [];
+
   const refresh = () => selectedId && api<ReportDetail>(`/api/v1/admin/reports/${selectedId}`).then(setDetail).catch(() => {});
 
   return (
     <main className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)_460px] lg:overflow-hidden">
       <aside className="order-2 border-rule bg-surface lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:border-r">
         <ReportQueue
-          reports={reports}
+          reports={byUrgency(reports)}
           selectedId={selectedId}
           connection={connection}
           onSelect={select}
@@ -67,13 +84,18 @@ export function Console() {
           onPick={() => {}}
           onSelect={select}
           onPublicCount={setPublicCount}
+          recommended={recommended}
         />
+        <div className="absolute left-14 right-3 top-3 z-[600]">
+          <UrgentBanner reports={reports} onShow={select} />
+        </div>
         <div className="pointer-events-none absolute bottom-6 left-3 z-[500]">
           <div className="pointer-events-auto rounded border border-rule bg-surface/95 px-3 py-2 text-xs shadow-sm">
             <p className="mb-1 font-medium">지도 범례</p>
             <ul className="space-y-1 text-ink-soft">
               <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-violet-600" />신고 지점과 검색 반경</li>
               <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
+              <li className="flex items-center gap-2"><span className="rec-num top">1</span>선택한 신고의 추천 공공 CCTV 순위 (위치정보 기준)</li>
               <li className="flex items-center gap-2">
                 <span className="h-2.5 w-2.5 rounded-full bg-signal ring-1 ring-white" />
                 <label className="flex items-center gap-1.5">

@@ -48,6 +48,11 @@ export type ReportSummary = {
   outcome: string | null;
   selected_camera_ids: string[];
   incident_type: string | null;
+  // Live snapshot only: urgency is known at intake (keyword rules) before any analysis runs.
+  priority?: "urgent" | "high" | "normal";
+  priority_basis?: "analysis" | "keywords";
+  alert_acknowledged?: boolean;
+  response_logs?: number;
 };
 
 export type Review = {

@@ -4,15 +4,13 @@ import { useCallback, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { ApiError, STEP_LABEL, attachmentSummary, reports, stepOf, type ReportView, type Step } from '@/api';
+import { ApiError, STEPS, STEP_LABEL, attachmentSummary, reports, stepOf, stepTimes, type ReportView } from '@/api';
 import { AttachmentPicker, type CapturedSet } from '@/components/AttachmentPicker';
 import { Button, Card, Note, styles as ui } from '@/components/ui';
 import { coords, reportLabels, shortId, when } from '@/geo';
 import { useSession } from '@/session';
 import { queueUploads } from '@/uploads';
 import { color, type } from '@/theme';
-
-const STEPS: Step[] = ['received', 'checking', 'reviewing'];
 
 export default function ReportDetail() {
   const insets = useSafeAreaInsets();
@@ -45,8 +43,11 @@ export default function ReportDetail() {
     }, [load]),
   );
 
-  const step = report ? stepOf(report.job) : 'received';
+  const step = report ? stepOf(report) : 'received';
   const reached = STEPS.indexOf(step);
+  const times = report ? stepTimes(report) : {};
+  // A step can be skipped (confirmed without a logged response); show only what is still ahead or happened.
+  const shown = STEPS.filter((name, index) => index >= reached || index === 0 || times[name]);
   const chosen = Object.values(extra);
 
   return (
@@ -77,15 +78,17 @@ export default function ReportDetail() {
               <Text style={[type.card, { color: color.ink, marginBottom: 8 }]} accessibilityRole="header">
                 처리 상황
               </Text>
-              {STEPS.map((name, index) => {
-                const state = index < reached ? 'done' : index === reached ? (step === 'reviewing' ? 'done' : 'current') : 'todo';
-                const time = index === 0 ? when(report.created_at).replace('오늘 ', '') : state === 'current' ? '진행 중' : state === 'done' ? '완료' : '대기';
+              {shown.map((name, index) => {
+                const position = STEPS.indexOf(name);
+                const state = position < reached ? 'done' : position === reached ? (step === 'closed' ? 'done' : 'current') : 'todo';
+                const at = name === 'received' ? report.created_at : times[name];
+                const time = at ? when(at).replace('오늘 ', '') : state === 'current' ? '진행 중' : state === 'done' ? '완료' : '대기';
                 return (
                   <View key={name} style={{ flexDirection: 'row', gap: 14 }}>
                     <View style={{ alignItems: 'center' }}>
                       <View style={[styles.line, { height: 12, backgroundColor: index === 0 ? 'transparent' : state === 'todo' ? color.rule : color.tide }]} />
                       <View style={[styles.dot, state === 'done' ? styles.done : state === 'current' ? styles.current : styles.todo]} />
-                      <View style={[styles.line, { height: 22, backgroundColor: index === STEPS.length - 1 ? 'transparent' : state === 'done' ? color.tide : color.rule }]} />
+                      <View style={[styles.line, { height: 22, backgroundColor: index === shown.length - 1 ? 'transparent' : state === 'done' ? color.tide : color.rule }]} />
                     </View>
                     <View style={[ui.row, { flex: 1, paddingTop: 8, alignItems: 'flex-start' }]}>
                       <Text style={[state === 'todo' ? type.body : type.card, { color: state === 'todo' ? color.inkSoft : color.ink, flex: 1 }]}>{STEP_LABEL[name]}</Text>

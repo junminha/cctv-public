@@ -101,6 +101,9 @@ const TONES = {
   received: { bg: color.surfaceSunk, fg: color.inkSoft },
   checking: { bg: color.tideWash, fg: color.tide },
   reviewing: { bg: color.amberWash, fg: color.amber },
+  responding: { bg: color.beaconWash, fg: color.beacon },
+  confirmed: { bg: color.tideWash, fg: color.tide },
+  closed: { bg: color.surfaceSunk, fg: color.ink },
 } as const;
 
 export function StatusPill({ tone, label }: { tone: keyof typeof TONES; label: string }) {

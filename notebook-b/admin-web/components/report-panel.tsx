@@ -204,7 +204,7 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         ) : null}
       </div>
 
-      <ReportGuidance report={detail} analysis={guidanceAnalysis} />
+      <ReportGuidance report={detail} analysis={guidanceAnalysis} events={detail.events} onLogged={onChanged} />
 
       {analysis && analysis.cameras.length > 0 && (
         <Section title="후보 카메라" aside={`${analysis.mode === "selective" ? "선택 분석" : analysis.mode === "all" ? "전체 분석" : "비교 실험"} · ${analysis.params.source === "live" ? "실시간" : "녹화"} ${analysis.params.duration}초`}>

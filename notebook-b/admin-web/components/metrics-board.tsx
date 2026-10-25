@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { api, type Benchmark } from "@/lib/api";
-import { kst, OUTCOME, shortId } from "@/lib/labels";
+import { INCIDENT, kst, OUTCOME, shortId } from "@/lib/labels";
 
 type Metrics = {
   reports: Record<string, number>;
@@ -14,8 +14,53 @@ type Metrics = {
   outcomes: Record<string, number>;
   latency_seconds: { count: number; mean: number; median: number; p95: number } | null;
   benchmarks: (Benchmark & { report_id: string; finished_at: string })[];
+  by_incident?: Record<string, IncidentStats>;
+  frame_reduction?: { count: number; mean: number; min: number; max: number } | null;
   note: string;
 };
+
+type IncidentStats = {
+  count: number;
+  review_required: number;
+  mean_processing_seconds: number | null;
+  mean_latency_seconds: number | null;
+  mean_frames: number | null;
+};
+
+// One series (mean processing time) per incident type: thin bars from a shared zero, value labelled.
+function IncidentBars({ rows }: { rows: [string, IncidentStats][] }) {
+  const max = Math.max(1, ...rows.map(([, row]) => row.mean_processing_seconds ?? 0));
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead className="text-left text-ink-soft">
+          <tr>
+            <th className="py-1 font-medium">사건 유형</th><th className="font-medium">분석</th><th className="font-medium">관련 장면 후보</th>
+            <th className="w-[40%] font-medium">평균 처리 시간</th><th className="font-medium">신고부터</th><th className="font-medium">평균 프레임</th>
+          </tr>
+        </thead>
+        <tbody className="font-mono tabular">
+          {rows.map(([type, row]) => (
+            <tr key={type} className="border-t border-rule">
+              <td className="py-1.5 font-sans">{INCIDENT[type] ?? (type === "UNKNOWN" ? "분류 전 실패" : type)}</td>
+              <td>{row.count}</td>
+              <td>{row.review_required} <span className="text-ink-soft">({Math.round((row.review_required / row.count) * 100)}%)</span></td>
+              <td>
+                <span className="flex items-center gap-2" title={`평균 처리 ${row.mean_processing_seconds ?? "—"}초`}>
+                  <span className="block h-2 bg-tide" style={{ width: `${((row.mean_processing_seconds ?? 0) / max) * 70}%`, minWidth: row.mean_processing_seconds ? 2 : 0 }} />
+                  <span>{row.mean_processing_seconds === null ? "—" : `${row.mean_processing_seconds.toFixed(1)}s`}</span>
+                </span>
+              </td>
+              <td>{row.mean_latency_seconds === null ? "—" : `${row.mean_latency_seconds.toFixed(1)}s`}</td>
+              <td>{row.mean_frames === null ? "—" : Math.round(row.mean_frames)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-1.5 text-[11px] text-ink-soft">처리 시간은 B가 분석을 시작해 결과를 저장할 때까지, &lsquo;신고부터&rsquo;는 분석 요청부터 결과까지입니다. 최근 분석 200건 기준입니다.</p>
+    </div>
+  );
+}
 
 function Tile({ label, value, unit }: { label: string; value: string | number; unit?: string }) {
   return (
@@ -75,7 +120,9 @@ export function MetricsBoard() {
   if (!metrics) return <main className="p-6 text-sm text-ink-soft">불러오는 중…</main>;
   const total = Object.values(metrics.reports).reduce((sum, value) => sum + value, 0);
   const reductions = metrics.benchmarks.map((row) => row.frame_reduction).filter((value): value is number => value !== null);
-  const meanReduction = reductions.length ? reductions.reduce((sum, value) => sum + value, 0) / reductions.length : null;
+  const meanReduction = metrics.frame_reduction?.mean
+    ?? (reductions.length ? reductions.reduce((sum, value) => sum + value, 0) / reductions.length : null);
+  const incidents = Object.entries(metrics.by_incident ?? {}).sort((a, b) => b[1].count - a[1].count);
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
@@ -114,6 +161,20 @@ export function MetricsBoard() {
           </dl>
         </section>
       </div>
+
+      <section className="mt-6 rounded border border-rule bg-surface p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-sm font-bold">사건 유형별 처리</h2>
+          {metrics.frame_reduction && (
+            <p className="font-mono text-[11px] text-ink-soft">
+              비교 실험 {metrics.frame_reduction.count}건 프레임 감소 평균 {Math.round(metrics.frame_reduction.mean * 100)}% · 범위 {Math.round(metrics.frame_reduction.min * 100)}~{Math.round(metrics.frame_reduction.max * 100)}%
+            </p>
+          )}
+        </div>
+        {incidents.length ? <div className="mt-3"><IncidentBars rows={incidents} /></div> : (
+          <p className="mt-2 text-sm text-ink-soft">아직 분석한 신고가 없습니다.</p>
+        )}
+      </section>
 
       {metrics.benchmarks.length > 0 && (
         <section className="mt-6 overflow-x-auto rounded border border-rule bg-surface p-4">

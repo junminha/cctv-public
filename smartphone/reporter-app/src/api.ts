@@ -18,7 +18,10 @@ export type ReportView = {
   gps_accuracy_m: number | null;
   job: Job;
   attachments: { attachment_id: string; kind: 'image' | 'audio' | 'video'; bytes: number; created_at: string }[];
+  // B v0.6: handling stages with times only (no names or notes). Older servers omit it.
+  handling?: { state: HandlingState; label: string; timeline: { state: HandlingState; label: string; at: string }[] };
 };
+export type HandlingState = 'received' | 'analyzing' | 'analyzed' | 'responding' | 'confirmed' | 'closed';
 export type NewReport = {
   description: string;
   details: string;
@@ -141,11 +144,22 @@ export async function uploadAttachment(
   });
 }
 
-// Citizens only see a coarse stage, never analysis details.
-export type Step = 'received' | 'checking' | 'reviewing';
-export const stepOf = (job: Job): Step =>
-  job.state === 'running' ? 'checking' : job.state === 'completed' || job.state === 'failed' ? 'reviewing' : 'received';
-export const STEP_LABEL: Record<Step, string> = { received: '접수됨', checking: '주변 CCTV 확인 중', reviewing: '담당자 검토 중' };
+// Citizens only see a coarse stage and when it happened, never analysis details or who handled it.
+export type Step = 'received' | 'checking' | 'reviewing' | 'responding' | 'confirmed' | 'closed';
+export const STEPS: Step[] = ['received', 'checking', 'reviewing', 'responding', 'confirmed', 'closed'];
+const FROM_HANDLING: Record<HandlingState, Step> = {
+  received: 'received', analyzing: 'checking', analyzed: 'reviewing', responding: 'responding', confirmed: 'confirmed', closed: 'closed',
+};
+export const stepOf = ({ job, handling }: Pick<ReportView, 'job' | 'handling'>): Step =>
+  handling ? FROM_HANDLING[handling.state]
+    : job.state === 'running' ? 'checking' : job.state === 'completed' || job.state === 'failed' ? 'reviewing' : 'received';
+// When each step happened, from the server timeline.
+export const stepTimes = (report: Pick<ReportView, 'handling'>) =>
+  Object.fromEntries((report.handling?.timeline ?? []).map((row) => [FROM_HANDLING[row.state], row.at])) as Partial<Record<Step, string>>;
+export const STEP_LABEL: Record<Step, string> = {
+  received: '접수됨', checking: '주변 CCTV 확인 중', reviewing: '담당자 검토 중',
+  responding: '담당자 대응 중', confirmed: '담당자 확인 완료', closed: '처리 종결',
+};
 
 export function attachmentSummary(report: ReportView) {
   const count = (kind: string) => report.attachments.filter((item) => item.kind === kind).length;

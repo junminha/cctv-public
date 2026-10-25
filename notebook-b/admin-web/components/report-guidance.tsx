@@ -1,17 +1,21 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, type Analysis, type Nearby, type ReportSummary } from "@/lib/api";
+import { api, type Analysis, type Nearby, type ReportEvent, type ReportSummary } from "@/lib/api";
+import { kstTime } from "@/lib/labels";
 
 const distance = (value: number | null) => value === null ? "거리 미등록" : `${Math.round(value)}m`;
 const coordinates = (latitude: number | null, longitude: number | null) =>
   latitude === null || longitude === null ? "좌표 미등록" : `위도 ${latitude.toFixed(5)} · 경도 ${longitude.toFixed(5)}`;
 
 // Current nearby metadata is fetched separately from the stored analysis snapshot.
-export function ReportGuidance({ report, analysis, compact = false }: {
+export function ReportGuidance({ report, analysis, compact = false, events, onLogged }: {
   report: ReportSummary;
   analysis: Analysis | null;
   compact?: boolean;
+  // Given in the report detail: response logs can be written and are listed. /live stays read-only.
+  events?: ReportEvent[];
+  onLogged?: () => void;
 }) {
   const { report_id: reportId, radius_m: radius, incident_type: incident, job: { state } } = report;
   const [attempt, setAttempt] = useState(0);
@@ -31,6 +35,27 @@ export function ReportGuidance({ report, analysis, compact = false }: {
   const best = analysis?.best_camera;
   const plan = analysis?.response_plan;
   const pending = state === "running" || state === "queued";
+  const logs = (events ?? []).filter((event) => event.type === "response_log");
+  // Step numbers belong to this analysis's plan; logs from before it ran refer to an older plan.
+  const stepLog = (index: number) => logs.find((event) => event.data.kind === "step" && event.data.step === index
+    && (!analysis?.finished_at || event.created_at >= analysis.finished_at));
+  const [busy, setBusy] = useState<string | null>(null);
+  const [memo, setMemo] = useState("");
+  const [logError, setLogError] = useState("");
+
+  async function log(name: string, body: { kind: "step" | "note"; step?: number; text?: string }) {
+    setBusy(name);
+    setLogError("");
+    try {
+      await api(`/api/v1/admin/reports/${reportId}/log`, { method: "POST", json: body });
+      if (body.kind === "note") setMemo("");
+      onLogged?.();
+    } catch (reason) {
+      setLogError(reason instanceof Error ? reason.message : "기록하지 못했습니다.");
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <div role="region" aria-label="CCTV 안내 및 대응" className={`guidance ${compact ? "guidance-compact" : ""}`}>
@@ -68,9 +93,10 @@ export function ReportGuidance({ report, analysis, compact = false }: {
                 <table className="guidance-table">
                   <caption className="sr-only">현재 반경 안 공공 CCTV 위치정보 추천</caption>
                   <thead><tr><th scope="col">위치·정보</th><th scope="col">거리</th><th scope="col">적합도</th></tr></thead>
-                  <tbody>{nearby.public.recommended.map((camera) => (
+                  <tbody>{nearby.public.recommended.map((camera, rank) => (
                     <tr key={camera.id}>
                       <td>
+                        <span className={`rec-num${rank === 0 ? " top" : ""}`} aria-label={`추천 ${rank + 1}위`}>{rank + 1}</span>
                         <strong>{camera.name}</strong>
                         <span className="guidance-block">{camera.district} · {camera.purpose} · {camera.device_count}대</span>
                         <span className="guidance-note guidance-block">{coordinates(camera.latitude, camera.longitude)}</span>
@@ -125,14 +151,48 @@ export function ReportGuidance({ report, analysis, compact = false }: {
         {plan ? (
           <>
             <p className="guidance-note">{plan.source === "local_rules" ? "사건 유형·분석 결과 기반 규칙 추천" : plan.source}</p>
-            <ol className="guidance-steps">{plan.steps.map((step, i) => (
-              <li key={i}><p>{step.action}</p><p className="guidance-note">{step.reason}</p></li>
-            ))}</ol>
+            <ol className="guidance-steps">{plan.steps.map((step, i) => {
+              const done = stepLog(i);
+              return (
+                <li key={i}>
+                  <p>{step.action}</p>
+                  <p className="guidance-note">{step.reason}</p>
+                  {events && (
+                    <div className="guidance-log">
+                      {done && <span className="guidance-logged">실행 기록 {kstTime(done.created_at)} · {String(done.data.by ?? "")}</span>}
+                      <button type="button" disabled={busy !== null} onClick={() => log(`step-${i}`, { kind: "step", step: i })}>
+                        {busy === `step-${i}` ? "기록 중" : done ? "다시 기록" : "실행 기록"}
+                      </button>
+                    </div>
+                  )}
+                </li>
+              );
+            })}</ol>
             {plan.contacts.length > 0 && <p className="guidance-contacts"><strong>연락·담당 기관</strong> · {plan.contacts.join(" · ")}</p>}
             <ul className="guidance-cautions">{plan.cautions.map((caution, i) => <li key={i}>{caution}</li>)}</ul>
           </>
         ) : <p className="guidance-note">{!analysis || pending ? "분석 완료 후 대응 방안을 표시합니다. 긴급 상황은 분석을 기다리지 말고 112·119 절차를 따르세요." : "이전 분석에 대응 방안이 없습니다. 다시 분석하면 표시됩니다."}</p>}
       </section>
+
+      {events && (
+        <section className="guidance-section">
+          <h3 className="guidance-title">대응 기록 <span className="guidance-meta">{logs.length}건 · 증거 묶음에 포함</span></h3>
+          <form className="guidance-memo" onSubmit={(event) => { event.preventDefault(); if (memo.trim()) log("note", { kind: "note", text: memo.trim() }); }}>
+            <input value={memo} maxLength={500} onChange={(event) => setMemo(event.target.value)} placeholder="한 일을 적으세요 (예: 119 신고 확인, 현장 인력 출발)" aria-label="대응 메모" />
+            <button type="submit" disabled={busy !== null || !memo.trim()}>{busy === "note" ? "기록 중" : "기록"}</button>
+          </form>
+          {logError && <p role="alert" className="guidance-note">{logError}</p>}
+          {logs.length ? (
+            <ol className="guidance-logs">{[...logs].reverse().map((event, i) => (
+              <li key={`${event.created_at}-${i}`}>
+                <span className="font-mono">{kstTime(event.created_at)}</span> {event.message}
+                {event.data.text ? <> · {String(event.data.text)}</> : null}
+                <span className="guidance-note"> · {String(event.data.by ?? "")}</span>
+              </li>
+            ))}</ol>
+          ) : <p className="guidance-note">아직 기록이 없습니다. 추천 단계의 &lsquo;실행 기록&rsquo;이나 메모로 남기면 누가 언제 했는지 저장됩니다.</p>}
+        </section>
+      )}
     </div>
   );
 }

@@ -4,7 +4,9 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api, bPath, type Analysis, type ReportDetail, type ReportSummary, type VisionResult } from "@/lib/api";
 import { INCIDENT, OUTCOME, STAGES, jobLabel, kstTime, shortId, sourceLabelAI } from "@/lib/labels";
 import { useLive } from "@/lib/live";
+import { byUrgency } from "@/lib/urgent";
 import { ReportGuidance } from "./report-guidance";
+import { UrgentBanner } from "./urgent-banner";
 
 const STAGE_TAG: Record<string, string> = {
   RECEIVED: "RECEIVED",
@@ -29,6 +31,7 @@ const TAG_COLOR: Record<string, string> = {
   RERUN: "var(--w-amber)",
   WARN: "var(--w-amber)",
   REVIEW: "var(--w-text)",
+  LOG: "var(--w-tide)",
 };
 
 type LogLine = { at: string; offset: number | null; tag: string; text: string };
@@ -83,6 +86,8 @@ function buildLog(detail: ReportDetail): LogLine[] {
       }
       for (const warning of fresh?.warnings ?? []) add(event.created_at, "WARN", warning);
       add(event.created_at, "DONE", `${outcome}${latency}`);
+    } else if (event.type === "response_log") {
+      add(event.created_at, "LOG", `${event.message}${event.data.text ? ` · ${String(event.data.text)}` : ""}`);
     } else if (event.type === "confirmed" || event.type === "closed") {
       add(event.created_at, "REVIEW", event.type === "confirmed" ? "담당자 확인" : "사건 종결");
     }
@@ -327,6 +332,7 @@ function ReportItem({ report, selected, onSelect }: { report: ReportSummary; sel
     <button type="button" className="report-item min-w-0" aria-current={selected} onClick={onSelect}>
       <span className="mono soft flex items-center gap-[0.6em] text-[0.82em]">
         {running && <span className="live-mark" />}
+        {report.priority === "urgent" && !report.review?.closed_at && <span className={`urgent-tag ${report.alert_acknowledged ? "seen" : ""}`}>긴급</span>}
         <span>{kstTime(report.created_at)}</span>
         <span>#{shortId(report.report_id)}</span>
       </span>
@@ -346,14 +352,14 @@ export function LiveWall() {
   const [now, setNow] = useState<number | null>(null);
   const logEnd = useRef<HTMLDivElement>(null);
 
-  const reports = useMemo(() => [...(snapshot?.reports ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at)), [snapshot]);
+  const reports = useMemo(() => byUrgency([...(snapshot?.reports ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))), [snapshot]);
   // Follow the report being analysed unless one was clicked.
   const auto = reports.find((r) => r.job.state === "running") ?? reports.find((r) => r.job.state === "queued" && r.job.params) ?? reports[0] ?? null;
   const focus = (pinned && reports.find((r) => r.report_id === pinned)) || auto;
   const index = stageIndex(focus);
   const running = focus?.job.state === "running";
   const failed = focus?.job.state === "failed";
-  const focusKey = focus ? `${focus.report_id}:${focus.radius_m}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}` : "";
+  const focusKey = focus ? `${focus.report_id}:${focus.radius_m}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}:${focus.response_logs ?? 0}:${focus.review?.confirmed_at}` : "";
 
   useEffect(() => {
     const tick = () => setNow(Date.now());
@@ -398,6 +404,7 @@ export function LiveWall() {
           <span className="soft">{clock}</span>
         </div>
       </header>
+      <UrgentBanner reports={reports} onShow={setPinned} />
 
       {/* minmax(0, …): long report text must truncate, never widen a column. */}
       <section className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.8fr)_minmax(0,1.55fr)_minmax(0,1.1fr)] gap-[0.9em]">

@@ -68,7 +68,7 @@ export default function MyReports() {
           </Text>
         }
         renderItem={({ item }) => {
-          const step = stepOf(item.job);
+          const step = stepOf(item);
           const meta = [labels[item.report_id] || item.details || coords(item), attachmentSummary(item)].filter(Boolean).join(' · ');
           return (
             <Pressable

@@ -27,6 +27,24 @@
 
 ## 다음 B 작업
 
+### 2026-10-26 긴급 알림·추천 CCTV 지도 번호·대응 기록·신고자 처리 상태·유형별 통계 (`work/b-app`)
+
+- API v0.6(`shared/API.md`): 스냅샷 `priority/priority_basis/alert_acknowledged/response_logs`, `POST /api/v1/admin/reports/{id}/log`,
+  신고자 `handling`, 지표 `by_incident`·`frame_reduction`.
+- 쓰러짐 의심 신고는 분석 전 신고문 키워드만으로 긴급 처리: 상황판·`/live` 상단 배너, 목록 맨 위 고정, 알림음(페이지를 한 번 클릭한 뒤부터).
+  `확인`을 누르면 `긴급 알림 확인` 기록이 남는다. 출동 여부는 정하지 않는다.
+- 선택한 신고의 추천 공공 CCTV 1~5위를 지도에 번호 핀으로 표시하고, 핀을 누르면 위치·용도·장소 단서·추천 이유를 보여준다. 추천 표와 번호가 같다.
+- 대응 방안 각 단계에 `실행 기록`, 자유 메모 기록, 대응 기록 목록. 이벤트·감사 기록으로 남아 증거 ZIP에 포함되고 `/live`에 `LOG` 줄로 보인다.
+- 시민 앱 내 신고: 접수 → 주변 CCTV 확인 중 → 담당자 검토 중 → 담당자 대응 중 → 담당자 확인 완료 → 처리 종결 단계와 시각. 담당자 이름·메모는 주지 않는다.
+- 성능 비교 화면: 사건 유형별 분석 수·관련 장면 후보 비율·평균 처리 시간·신고부터 시간·평균 프레임, 비교 실험 프레임 감소 범위.
+- 실제 검증:
+  - `notebook-b/central-server`: `python -m pytest -q` → **118 passed**.
+  - `notebook-b/admin-web`: `npx tsc --noEmit`, `npx next build` 통과, `npx eslint components lib` 오류 0(기존 경고 2).
+  - `smartphone/reporter-app`: `npx tsc --noEmit`, `npx eslint src` 통과. **실제 휴대폰에서는 아직 확인하지 않았다.**
+  - 저장소 루트에서 `playwright-cli -s=response --raw run-code --filename=notebook-b/admin-web/tests/response-ui.js` → 24/24 통과
+    (1920·1366 배너·목록 순서·지도 번호 핀·팝업·단계/메모 기록·확인 후 배너 해제·`/live` LOG·통계 표·화면 넘침·페이지 오류). **합성 응답을 쓴 화면 검사다.**
+- B 8000·관리자 3000을 새 코드로 재시작했다(세션과 분리된 프로세스). 실제 웹캠 AI 분석·OpenAI 호출은 이번에 실행하지 않았다.
+
 ### 2026-10-23 반경 CCTV·대응 방안 화면 연결 (`work/b-app`)
 
 - 관리자 신고 상세와 `/live` 분석 기록에 동일한 CCTV 안내 컴포넌트를 연결했다. 현재 검색 반경의 승인 웹캠 후보 대수·위치,
