@@ -156,6 +156,21 @@ class RadiusInput(BaseModel):
     radius_m: float = Field(ge=1, le=5000, allow_inf_nan=False)
 
 
+class ResponseLogInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    kind: Literal['step', 'note', 'alert_ack']
+    step: StrictInt | None = Field(default=None, ge=0, le=50)
+    text: str = Field(default='', max_length=500)
+
+    @model_validator(mode='after')
+    def required(self):
+        if self.kind == 'step' and self.step is None:
+            raise ValueError('step is required for a response step log')
+        if self.kind == 'note' and not self.text:
+            raise ValueError('text is required for a note')
+        return self
+
+
 class ReviewInput(BaseModel):
     model_config = ConfigDict(extra='forbid')
     note: str = Field(default='', max_length=2000)

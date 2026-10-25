@@ -95,3 +95,35 @@ def test_vehicle_and_unknown_reports_name_the_district_office():
                                           nearby={'webcams': {'cameras': []}, 'public': {'recommended': []}}))
     assert any('반경을 넓혀' in step['action'] for step in none['steps'])
     assert not any('관제센터' in step['action'] for step in none['steps'])
+
+
+def detail(**changes):
+    base = {'created_at': '2026-10-26T01:00:00Z', 'description': '복도에 사람이 쓰러져 있어요', 'details': '',
+            'job': {'state': 'queued', 'params': None}, 'events': [], 'review': None, 'analysis': None}
+    return {**base, **changes}
+
+
+def test_fall_report_is_urgent_at_intake_before_any_analysis():
+    state = guidance.alert_state(detail())
+    assert state == {'priority': 'urgent', 'priority_basis': 'keywords', 'alert_acknowledged': False, 'response_logs': 0}
+    assert guidance.alert_state(detail(description='주차장에 차가 오래 서 있어요'))['priority'] == 'normal'
+    analysed_ = detail(analysis={'response_plan': {'priority': 'high'}},
+                       events=[{'type': 'response_log', 'created_at': 'x', 'data': {'kind': 'alert_ack'}}])
+    assert guidance.alert_state(analysed_) == {'priority': 'high', 'priority_basis': 'analysis',
+                                              'alert_acknowledged': True, 'response_logs': 1}
+    assert guidance.alert_state(detail(review={'confirmed_at': 'x'}))['alert_acknowledged'] is True
+
+
+def test_citizen_handling_shows_stages_and_times_only():
+    events = [{'type': 'analysis_requested', 'created_at': 't1', 'data': {}},
+              {'type': 'analysis_finished', 'created_at': 't2', 'data': {}},
+              {'type': 'response_log', 'created_at': 't3', 'data': {'by': 'admin', 'text': '현장 전달'}}]
+    view = guidance.handling(detail(events=events, job={'state': 'completed', 'params': {}}))
+    assert view['state'] == 'responding' and view['label'] == '담당자 대응 중'
+    assert [row['state'] for row in view['timeline']] == ['received', 'analyzing', 'analyzed', 'responding']
+    assert 'admin' not in str(view) and '현장 전달' not in str(view)
+    closed = guidance.handling(detail(events=events, review={'confirmed_at': 't4', 'closed_at': 't5'},
+                                      job={'state': 'completed', 'params': {}}))
+    assert closed['state'] == 'closed' and closed['timeline'][-1]['at'] == 't5'
+    rerun = guidance.handling(detail(events=events[:2], job={'state': 'running', 'params': {}}))
+    assert rerun['state'] == 'analyzing'

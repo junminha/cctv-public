@@ -11,6 +11,7 @@ dispatches, calls or decides anything; the operator does.
 import math
 import re
 
+from intelligence import local_classification
 from public_catalog import list_cameras
 
 EARTH_M = 6371008.8
@@ -221,3 +222,43 @@ def plan(report, result):
     return {'priority': priority, 'priority_label': labels[priority], 'steps': steps,
             'contacts': list(dict.fromkeys(contacts)), 'cautions': list(dict.fromkeys(cautions)),
             'source': 'local_rules'}
+
+
+def alert_state(detail):
+    """Priority for the console: the analysed plan, or keyword rules right at intake."""
+    analysis = detail.get('analysis') or {}
+    plan = analysis.get('response_plan')
+    if plan:
+        priority, basis = plan['priority'], 'analysis'
+    else:
+        incident = ((analysis.get('classification') or {}).get('incident_type')
+                    or local_classification(detail.get('description', ''), detail.get('details', ''))['incident_type'])
+        priority, basis = ('urgent' if incident == 'FALL_SUSPECTED' else 'normal'), 'keywords'
+    logs = [event for event in detail.get('events', []) if event['type'] == 'response_log']
+    review = detail.get('review') or {}
+    acknowledged = (any(event['data'].get('kind') == 'alert_ack' for event in logs)
+                    or bool(review.get('confirmed_at') or review.get('closed_at')))
+    return {'priority': priority, 'priority_basis': basis, 'alert_acknowledged': acknowledged,
+            'response_logs': len(logs)}
+
+
+HANDLING = {'received': '접수됨', 'analyzing': '분석 중', 'analyzed': '분석 완료 · 담당자 검토 대기',
+            'responding': '담당자 대응 중', 'confirmed': '담당자 확인', 'closed': '종결'}
+
+
+def handling(detail):
+    """What a citizen may know about handling: stages and times only, no names, notes or actions."""
+    events = detail.get('events', [])
+    review = detail.get('review') or {}
+
+    def first(kind):
+        return next((event['created_at'] for event in events if event['type'] == kind), None)
+    moments = [('received', detail['created_at']), ('analyzing', first('analysis_requested')),
+               ('analyzed', first('analysis_finished')), ('responding', first('response_log')),
+               ('confirmed', review.get('confirmed_at')), ('closed', review.get('closed_at'))]
+    timeline = [{'state': state, 'label': HANDLING[state], 'at': at} for state, at in moments if at]
+    state = timeline[-1]['state']
+    job = detail['job']
+    if job['state'] in ('queued', 'running') and job.get('params') is not None and state in ('received', 'analyzed'):
+        state = 'analyzing'
+    return {'state': state, 'label': HANDLING[state], 'timeline': timeline}

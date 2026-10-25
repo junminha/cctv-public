@@ -316,3 +316,26 @@ def test_analysis_guides_the_radius_cctv_and_recommends_a_response(system):
     plan = analysis['response_plan']
     assert plan['priority'] == 'urgent' and '119' in plan['steps'][0]['action']
     assert any('cam-02 근거 프레임' in step['action'] for step in plan['steps'])
+
+
+def test_response_log_handling_status_and_incident_metrics(system):
+    client, _, _ = system
+    report_id = report(client)
+    plan = analyze(client, report_id)['analysis']['response_plan']
+    path = f'/api/v1/admin/reports/{report_id}/log'
+    logged = client.post(path, headers=auth(ADMIN), json={'kind': 'step', 'step': 0})
+    assert logged.status_code == 201 and logged.json()['text'] == plan['steps'][0]['action']
+    assert client.post(path, headers=auth(ADMIN), json={'kind': 'step', 'step': 40}).status_code == 409
+    assert client.post(path, headers=auth(ADMIN), json={'kind': 'note'}).status_code == 422
+    assert client.post(path, headers=auth(REPORTER), json={'kind': 'alert_ack'}).status_code == 403
+    assert client.post(path, headers=auth(ADMIN), json={'kind': 'alert_ack'}).status_code == 201
+    events = client.get(f'/api/v1/admin/reports/{report_id}', headers=auth(ADMIN)).json()['events']
+    logs = [event for event in events if event['type'] == 'response_log']
+    assert [event['message'] for event in logs] == ['대응 단계 1 실행', '긴급 알림 확인']
+    view = client.get(f'/api/v1/reports/{report_id}', headers=auth(ADMIN)).json()['handling']
+    assert view['state'] == 'responding' and 'by' not in str(view)
+    client.post(f'/api/v1/admin/reports/{report_id}/confirm', headers=auth(ADMIN), json={'note': '원본 확인'})
+    assert client.get(f'/api/v1/reports/{report_id}', headers=auth(ADMIN)).json()['handling']['state'] == 'confirmed'
+    metrics = client.get('/api/v1/admin/metrics', headers=auth(ADMIN)).json()
+    fall = metrics['by_incident']['FALL_SUSPECTED']
+    assert fall['count'] == 1 and fall['review_required'] == 1 and fall['mean_frames'] > 0

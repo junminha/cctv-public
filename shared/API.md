@@ -246,3 +246,24 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 - 대응 방안은 사건 유형·분석 결과·반경 CCTV로 만든 로컬 규칙(`source=local_rules`)이다. OpenAI 요약이 있으면
   그 `recommended_next_step`을 `AI 요약 제안` 단계로 덧붙인다. 생명·신체 위험(쓰러짐 의심)은 AI 결과와 관계없이
   119 신고 안내를 첫 단계로 둔다. 추천은 참고용이며 출동·조치 결정은 담당자가 한다.
+
+## B 긴급 알림·대응 기록·신고자 처리 상태·유형별 통계 (v0.6)
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| POST | `/api/v1/admin/reports/{id}/log` | 관리자, `{kind,step,text}` 대응 기록 추가. 201 기록. 이벤트 `response_log`, 감사 `response_logged` |
+
+- 대응 기록 `kind`: `step`(추천 대응 단계 실행, `step`=0부터의 단계 번호 필수), `note`(자유 메모, `text` 1~500자 필수),
+  `alert_ack`(긴급 알림 확인). 기록은 `{by,kind,step,text}`로 신고 이벤트에 남고 증거 ZIP의 `report.json`·`audit.json`에 포함된다.
+  `step` 기록의 `text`가 비면 분석 결과의 해당 단계 문장을 그대로 남긴다.
+- 관리자 WebSocket 스냅샷의 신고 항목에 추가: `priority`(urgent/high/normal), `priority_basis`(analysis/keywords),
+  `alert_acknowledged`(bool), `response_logs`(대응 기록 수).
+  분석 결과의 `response_plan.priority`가 있으면 그것을, 없으면 접수 즉시 신고문 키워드 분류로 정한다(쓰러짐 의심=urgent).
+  AI 분석을 기다리지 않고 긴급 신고를 알리기 위한 값이며 출동 여부를 정하지 않는다.
+  `alert_acknowledged`는 `alert_ack` 기록 또는 담당자 확인·종결이 있으면 true.
+- 신고자 목록·상세에 `handling{state,label,timeline[{state,label,at}]}` 추가.
+  state: `received`(접수) → `analyzing`(분석 중) → `analyzed`(분석 완료·담당자 검토 대기) → `responding`(담당자 대응 중, 대응 기록 1건 이상)
+  → `confirmed`(담당자 확인) → `closed`(종결). 재분석 중이면 `analyzing`. `timeline`은 실제로 일어난 단계만 처음 시각으로 담는다.
+  담당자 이름·메모·대응 내용·CCTV 정보는 신고자에게 주지 않는다.
+- `GET /api/v1/admin/metrics`에 `by_incident{유형:{count,review_required,mean_processing_seconds,mean_latency_seconds,mean_frames}}`,
+  `frame_reduction{count,mean,min,max}`(비교 실험 측정값만) 추가.

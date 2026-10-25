@@ -27,7 +27,7 @@ import guidance
 from intelligence import Intelligence, local_classification
 from media import snapshot as capture_snapshot
 from models import (AnalyzeInput, CameraId, CredentialsInput, DEMO_CAMERA_IDS, LocationInput, PasswordResetInput,
-                    PreserveInput, RadiusInput, ReportInput, ReviewInput, Username, UtcDatetime, utc)
+                    PreserveInput, RadiusInput, ReportInput, ResponseLogInput, ReviewInput, Username, UtcDatetime, utc)
 from public_catalog import list_cameras as public_cameras
 from store import Store
 from vision import VisionEngine
@@ -174,7 +174,9 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
         attachments = [{key: value for key, value in item.items() if key in
                         ('attachment_id', 'kind', 'content_type', 'bytes', 'created_at')}
                        for item in app.state.store.attachments(report['report_id'])]
-        return {**{key: report.get(key) for key in fields}, 'job': job, 'attachments': attachments}
+        detail = app.state.store.detail(report['report_id'])
+        return {**{key: report.get(key) for key in fields}, 'job': job, 'attachments': attachments,
+                'handling': guidance.handling(detail)}
 
     @app.get('/api/v1/reports')
     def my_reports(identity: Annotated[dict, Depends(role('reporter'))],
@@ -281,6 +283,19 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
         find_report(report_id)
         return app.state.store.review(report_id, 'confirm', identity['subject'], payload.note)
 
+    @app.post('/api/v1/admin/reports/{report_id}/log', status_code=201)
+    def log_response(report_id: str, payload: ResponseLogInput, identity: Annotated[dict, Depends(admin)]):
+        detail = app.state.store.detail(report_id)
+        if detail is None:
+            raise HTTPException(404, 'Report not found')
+        text = payload.text
+        if payload.kind == 'step':
+            steps = ((detail.get('analysis') or {}).get('response_plan') or {}).get('steps', [])
+            if payload.step >= len(steps):
+                raise HTTPException(409, 'No such recommended step in the latest analysis')
+            text = text or steps[payload.step]['action']
+        return app.state.store.log_response(report_id, identity['subject'], payload.kind, payload.step, text)
+
     @app.post('/api/v1/admin/reports/{report_id}/close')
     def close(report_id: str, payload: ReviewInput, identity: Annotated[dict, Depends(admin)]):
         find_report(report_id)
@@ -353,7 +368,28 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
                        'p95': round(latencies[min(len(latencies) - 1, int(0.95 * len(latencies)))], 3)}
         benchmarks = [{'report_id': row.get('report_id'), 'finished_at': row.get('finished_at'),
                        **row['benchmark']} for row in analyses if row.get('benchmark')][:20]
+        by_incident = {}
+        for row in analyses:
+            incident = (row.get('classification') or {}).get('incident_type') or 'UNKNOWN'
+            frames = sum(camera.get(kind, {}).get('processed_frames', 0) for camera in row.get('cameras', [])
+                         for kind in ('scan', 'focus', 'all'))
+            by_incident.setdefault(incident, []).append((row, frames))
+
+        def mean(values):
+            values = [value for value in values if value is not None]
+            return round(statistics.fmean(values), 3) if values else None
+        by_incident = {incident: {'count': len(rows),
+                                  'review_required': sum(row.get('outcome') == 'REVIEW_REQUIRED' for row, _ in rows),
+                                  'mean_processing_seconds': mean(row.get('processing_seconds') for row, _ in rows),
+                                  'mean_latency_seconds': mean(row.get('latency_seconds') for row, _ in rows),
+                                  'mean_frames': mean(frames for _, frames in rows)}
+                       for incident, rows in by_incident.items()}
+        reductions = [row['benchmark']['frame_reduction'] for row in analyses
+                      if row.get('benchmark') and row['benchmark'].get('frame_reduction') is not None]
+        frame_reduction = ({'count': len(reductions), 'mean': round(statistics.fmean(reductions), 4),
+                            'min': min(reductions), 'max': max(reductions)} if reductions else None)
         return {**data, 'outcomes': outcomes, 'latency_seconds': latency, 'benchmarks': benchmarks,
+                'by_incident': by_incident, 'frame_reduction': frame_reduction,
                 'note': '지연은 분석 요청(자동 분석은 신고 접수) 시각부터 결과 저장까지입니다.'}
 
     @app.post('/api/v1/admin/ws-ticket', dependencies=[Depends(admin)])
@@ -376,7 +412,8 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
                 'report_id', 'source', 'created_at', 'description', 'latitude', 'longitude', 'location_kind',
                 'radius_m', 'job', 'review')} | {'outcome': analysis.get('outcome'),
                                                 'selected_camera_ids': analysis.get('selected_camera_ids', []),
-                                                'incident_type': analysis.get('classification', {}).get('incident_type')})
+                                                'incident_type': analysis.get('classification', {}).get('incident_type')}
+                           | guidance.alert_state(detail))
         return {'type': 'snapshot', 'reports': reports, 'cameras': store.cameras(), 'time': utc(),
                 'worker_running': worker_running()}
 

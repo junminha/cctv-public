@@ -229,6 +229,17 @@ class Store:
                              (now, 'report_radius_changed', actor, report_id, ''))
         return self.report(report_id)
 
+    def log_response(self, report_id, actor, kind, step, text):
+        now = utc()
+        message = {'step': f'대응 단계 {(step or 0) + 1} 실행', 'note': '대응 메모', 'alert_ack': '긴급 알림 확인'}[kind]
+        entry = {'by': actor, 'kind': kind, 'step': step, 'text': text}
+        with self.connect() as database:
+            database.execute('INSERT INTO events VALUES (?,?,?,?,?)',
+                             (report_id, now, 'response_log', message, json.dumps(entry, ensure_ascii=False)))
+            database.execute('INSERT INTO audit_events VALUES (?,?,?,?,?)',
+                             (now, 'response_logged', actor, report_id, kind))
+        return {'created_at': now, 'message': message, **entry}
+
     def review(self, report_id, action, actor, note):
         now = utc()
         prefix, column = ('confirmed', 'confirm_note') if action == 'confirm' else ('closed', 'close_note')
