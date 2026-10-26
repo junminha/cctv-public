@@ -262,6 +262,7 @@ body {
 .console-queue, .console-detail { min-width: 0; }
 .console-map { min-width: 0; height: 55vh; }
 .console-legend { max-width: calc(100vw - 28px); }
+.console-legend .rec-num { min-width: 14px; height: 14px; margin-right: 0; font-size: 10px; }
 .admin-console .leaflet-popup-content-wrapper, .admin-console .leaflet-popup-tip,
 .admin-console .leaflet-bar, .admin-console .leaflet-bar a, .admin-console .leaflet-tooltip { border-radius: 0; box-shadow: none; }
 .queue-export { margin: 0 16px 12px; }

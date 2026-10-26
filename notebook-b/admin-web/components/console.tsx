@@ -95,22 +95,22 @@ export function Console() {
           recommended={recommended}
         />
         <div className="pointer-events-none absolute bottom-6 left-3 z-[500]">
-          <div className="console-legend pointer-events-auto border border-rule bg-surface px-3 py-2 text-xs">
-            <p className="mb-1 font-medium">지도 범례</p>
-            <ul className="space-y-1 text-ink-soft">
-              <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 bg-beacon" />신고 지점과 검색 반경</li>
-              <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
-              <li className="flex items-center gap-2"><span className="rec-num top">1</span>선택한 신고의 추천 공공 CCTV 순위 (위치정보 기준)</li>
-              <li className="flex items-center gap-2">
-                <span className="h-2.5 w-2.5 rounded-full bg-signal ring-1 ring-white" />
-                <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={showPublic} onChange={(event) => setShowPublic(event.target.checked)} />
+          <div className="console-legend pointer-events-auto border border-rule bg-surface px-2 py-1.5 text-[11px] leading-[1.35]">
+            <p className="mb-0.5 font-medium">지도 범례</p>
+            <ul className="space-y-0.5 text-ink-soft">
+              <li className="flex items-center gap-1.5"><span className="h-2 w-2 shrink-0 bg-beacon" />신고 지점과 검색 반경</li>
+              <li className="flex items-center gap-1.5"><span className="h-2 w-2 shrink-0 bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
+              <li className="flex items-center gap-1.5"><span className="rec-num top shrink-0">1</span>선택한 신고의 추천 공공 CCTV 순위 (위치정보 기준)</li>
+              <li className="flex items-center gap-1.5">
+                <span className="h-2 w-2 shrink-0 bg-signal ring-1 ring-white" />
+                <label className="flex items-center gap-1">
+                  <input type="checkbox" className="h-3 w-3 shrink-0" checked={showPublic} onChange={(event) => setShowPublic(event.target.checked)} />
                   부산 공개 CCTV 위치 (지도 표시 전용)
                 </label>
               </li>
             </ul>
             {showPublic && publicCount && (
-              <p className="mt-1.5 font-mono text-[11px] text-ink-soft">
+              <p className="mt-1 font-mono text-[11px] text-ink-soft">
                 {publicCount.total < 0 ? "확대하면 공개 위치를 표시합니다" : `${publicCount.shown.toLocaleString()} / ${publicCount.total.toLocaleString()}개 표시`}
               </p>
             )}

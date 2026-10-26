@@ -2,6 +2,7 @@
 
 ## 2026-10-26 관리자 상황판 v2 구현·검증 (`work/b-app`)
 
+- 추가 요청(2026-10-26): 지도 범례만 본문 12→11px·줄높이 18→14.85px·여백 세로8/가로12→세로6/가로8px·항목 간격4→2px·색 표시10→8px·번호 칸18→14px로 축소(실측 약243×130px); 항목 4개·공개 CCTV 체크박스 켜기/끄기·표 번호 칸18px 유지 확인. `npx tsc --noEmit -p .`, `npx eslint components lib tests`(오류0/기존 경고2), `npx next build` 통과, 3000만 재시작(8000 PID18484 유지), 루트의 `npx --yes --package @playwright/cli playwright-cli -s=legend --raw run-code --filename=notebook-b/admin-web/tests/response-ui.js` 합성 응답 검사 91 PASS/0 FAIL; `output/playwright/legend-1366-console.png` 직접 확인.
 - 승인된 Figma `Admin console v2` (44:261 / 44:334 / 44:407 / 44:480 / 44:553)를 관리자 웹에 구현했다.
   상단 독립 긴급 배너(기존 알림음·확인 기록·보기 동작 유지), 신고 목록 긴급/처리 중/완료 필터,
   대응/CCTV/신고 내용/도구 탭과 좌우 화살표·Home·End 키 이동을 제공한다. 신고를 바꾸면 대응 탭으로 돌아가며 탭 전환 시 입력은 유지한다.
