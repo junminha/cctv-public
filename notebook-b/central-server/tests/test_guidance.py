@@ -1,5 +1,6 @@
 """Radius CCTV guide and responder plan: counts, public ranking from metadata only, safe steps."""
 import guidance
+import pytest
 from public_catalog import list_cameras
 
 REPORT = {'description': '부산대후문삼거리 앞에 차가 통행로를 막고 있어요', 'details': '', 'latitude': 35.2310,
@@ -95,6 +96,41 @@ def test_vehicle_and_unknown_reports_name_the_district_office():
                                           nearby={'webcams': {'cameras': []}, 'public': {'recommended': []}}))
     assert any('반경을 넓혀' in step['action'] for step in none['steps'])
     assert not any('관제센터' in step['action'] for step in none['steps'])
+
+
+@pytest.mark.parametrize(('outcome', 'cameras'), [
+    ('VIDEO_NOT_VISIBLE', [{'camera_id': 'cam-01', 'status': 'available'}]),
+    ('RECORDING_UNAVAILABLE', [{'camera_id': 'cam-01', 'status': 'RECORDING_UNAVAILABLE'}]),
+    ('NO_CAMERA_IN_RANGE', [])])
+def test_expanded_search_always_cautions_about_its_wider_area(outcome, cameras):
+    result = analysed(outcome=outcome, cameras=cameras,
+                      search={'base_radius_m': 100, 'radius_m': 300, 'expanded': True})
+    plan = guidance.plan({**REPORT, 'radius_m': 100}, result)
+    assert any('신고 반경 100m 안에 웹캠이 없어 300m까지 자동 확대해 검색했습니다.' in caution
+               and '사건 장소와 떨어져 있을 수 있습니다' in caution for caution in plan['cautions'])
+    unchanged = guidance.plan({**REPORT, 'radius_m': 100},
+                              analysed(search={'base_radius_m': 100, 'radius_m': 100, 'expanded': False}))
+    assert not any('자동 확대' in caution for caution in unchanged['cautions'])
+
+
+def test_exhausted_search_explains_both_radii_without_claiming_a_camera_was_found():
+    result = analysed(outcome='NO_CAMERA_IN_RANGE', cameras=[],
+                      search={'base_radius_m': 100, 'radius_m': 300, 'expanded': True},
+                      nearby={'webcams': {'cameras': []}, 'public': {'recommended': []}})
+    # The analysis records its own original radius even if the report was subsequently edited.
+    plan = guidance.plan({**REPORT, 'radius_m': 500}, result)
+    assert any(step['reason'] == '반경 100m에서 300m까지 넓혀도 영상 분석이 가능한 웹캠이 없습니다.'
+               for step in plan['steps'])
+    assert not any('넓혀 찾은 카메라' in caution for caution in plan['cautions'])
+
+
+def test_fractional_radius_is_not_an_expansion_when_only_its_display_is_rounded():
+    result = analysed(outcome='NO_CAMERA_IN_RANGE', cameras=[],
+                      search={'base_radius_m': 99.6, 'radius_m': 99.6, 'expanded': False},
+                      nearby={'webcams': {'cameras': []}, 'public': {'recommended': []}})
+    plan = guidance.plan({**REPORT, 'radius_m': 99.6}, result)
+    reasons = ' '.join(step['reason'] for step in plan['steps'])
+    assert '반경 100m 안에' in reasons and '까지 넓혀도' not in reasons
 
 
 def detail(**changes):

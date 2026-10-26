@@ -144,7 +144,7 @@ async page => {
   await detailPanel().locator('input[type=number]').first().fill('200');
   await switchTab('/', 'CCTV');
   await has(guidance(), '공공 CCTV 8대');
-  await has(detailPanel(), '분석 당시 반경 100m');
+  await has(detailPanel(), /분석 당시 (기본 )?반경 100m/);
   results.push('Saved radius refresh and historical analysis label PASS');
 
   for (const path of ['/', '/live']) {
@@ -206,6 +206,70 @@ async page => {
     await visit(path);
     await switchTab(path, '대응');
     await has(responseArea(path), '119 신고 여부 확인');
+  }
+  // A saved report keeps its base radius while this analysis may use a wider search.
+  const expansion = '반경 300m → 500m 자동 확대';
+  const expanded = () => {
+    records[first].radius_m = 300;
+    records[first].analysis.nearby = nearby(500);
+    records[first].analysis.search = { base_radius_m: 300, radius_m: 500, step_m: 100, expanded: true,
+      attempts: [{ radius_m: 300, webcams: 0 }, { radius_m: 400, webcams: 0 }, { radius_m: 500, webcams: 3 }] };
+    records[first].events = [{ type: 'radius_expanded', created_at: at, message: '검색 반경 자동 확대 300m → 500m', data: { from: 300, to: 500, webcams: 3 } }];
+  };
+  const check = (name, ok) => results.push(`${ok ? 'PASS' : 'FAIL'} ${name}`);
+  for (const width of [1920, 1366]) {
+    await page.setViewportSize({ width, height: width === 1920 ? 1080 : 768 });
+    for (const path of ['/', '/live']) {
+      reset(); scenario = 'normal'; expanded();
+      await visit(path);
+      const views = path === '/' ? ['CCTV', '대응'] : ['all'];
+      for (const view of views) {
+        if (path === '/') await switchTab(path, view);
+        const notice = guidance().getByText(expansion, { exact: true });
+        check(`${width} ${path} ${view} shows this analysis expansion`, await notice.count() === 1 && await notice.isVisible());
+        if (await notice.count()) {
+          check(`${width} ${path} ${view} places expansion above guidance content`, await notice.evaluate(node =>
+            node.parentElement.firstElementChild === node));
+          await notice.scrollIntoViewIfNeeded();
+        }
+        check(`${width} ${path} ${view} auto expansion does not demand a radius rerun`, !(await responseArea(path).innerText()).includes('현재 반경과 다릅니다'));
+        check(`${width} ${path} ${view} expansion preserves viewport`, await page.evaluate(() =>
+          document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1));
+        await page.screenshot({ path: `output/playwright/expand-${width}-${path === '/' ? view === '대응' ? 'response' : 'cctv' : 'live'}.png` });
+      }
+      if (path === '/live') {
+        const tag = page.locator('.log-line .log-tag').filter({ hasText: /^EXPAND$/ });
+        check(`${width} /live logs radius expansion with EXPAND tag`, await tag.count() === 1);
+        check(`${width} /live expansion log uses amber`, await tag.count() === 1 && await tag.evaluate(node => {
+          const probe = document.createElement('span'); probe.style.color = 'var(--w-amber)'; node.appendChild(probe);
+          const amber = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(node).color === amber;
+        }));
+      }
+    }
+  }
+  for (const path of ['/', '/live']) {
+    for (const mode of ['legacy', 'unexpanded', 'queued', 'running', 'failed']) {
+      reset(); expanded();
+      if (mode === 'legacy') delete records[first].analysis.search;
+      if (mode === 'unexpanded') records[first].analysis.search.expanded = false;
+      if (mode === 'queued' || mode === 'running' || mode === 'failed') {
+        records[first].job.state = mode;
+        records[first].job.params = records[first].analysis.params;
+        records[first].events.push({ type: 'analysis_requested', created_at: '2026-10-23T07:01:00.000Z', message: '분석 요청', data: {} });
+      }
+      await visit(path);
+      if (path === '/') await switchTab(path, '대응');
+      check(`${path} ${mode} hides expansion notice`, await guidance().getByText(expansion, { exact: true }).count() === 0);
+    }
+    reset(); expanded();
+    records[first].analysis.search.base_radius_m = 300.4;
+    records[first].analysis.search.radius_m = 499.6;
+    records[first].radius_m = 300.4;
+    await visit(path);
+    check(`${path} expansion notice rounds API radii`, await guidance().getByText(expansion, { exact: true }).count() === 1);
+    reset(); expanded(); records[first].radius_m = 200;
+    await visit(path);
+    check(`${path} changed base radius still demands a rerun`, (await responseArea(path).innerText()).includes('현재 반경과 다릅니다'));
   }
   if (errors.length) throw new Error(errors.join('\n'));
   if (results.some(result => result.startsWith('FAIL'))) throw new Error(results.join('\n'));

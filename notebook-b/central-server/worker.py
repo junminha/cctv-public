@@ -20,6 +20,8 @@ from models import DEMO_CAMERA_IDS, AnalyzeInput, PreserveInput, utc
 from vision import VisionUnavailable
 
 RECORDING_LAG_SECONDS = 70  # A lists only finalized 60 s segments.
+EXPAND_STEP_M = 100  # Design doc 6.2: widen 100 -> 200 -> 300 m when the radius has no camera.
+MAX_RADIUS_M = 5000
 
 
 def parse(value):
@@ -99,11 +101,13 @@ class Pipeline:
         except AdapterError as exc:
             self.store.invalidate_cameras()
             result['warnings'].append(f'A 카메라 상태 확인 실패: {exc.message}')
-        candidates = self.store.candidates(report)
+        candidates, result['search'] = self._search(report, params)
+        # The stored report radius stays as reported; this analysis uses the widened one.
+        searched = {**report, 'radius_m': result['search']['radius_m']}
         result['candidates'] = [{'camera_id': row['id'], 'distance_m': row['distance_m'], 'zone': row.get('zone')}
                                 for row in candidates]
         try:
-            result['nearby'] = guidance.nearby(report, incident, classification.get('keywords'), candidates)
+            result['nearby'] = guidance.nearby(searched, incident, classification.get('keywords'), candidates)
         except Exception as exc:  # noqa: BLE001 - the radius guide must not cost the video analysis
             result['warnings'].append(f'반경 CCTV 안내 실패({type(exc).__name__})')
         if not candidates:
@@ -126,7 +130,7 @@ class Pipeline:
                     clips[row['camera_id']], folder / 'scan' / row['camera_id'], sample_fps=params.sample_fps,
                     max_seconds=params.duration, incident_type=incident))
                 row['event_score'] = row['scan']['relevance_score']
-                row['rank_score'] = self._rank(report, row)
+                row['rank_score'] = self._rank(searched, row)
             scan_seconds = time.monotonic() - scan_started
             ranked = sorted(available, key=lambda item: -item['rank_score'])
             selected = [row for row in ranked if row['event_score'] > 0][:params.top_k]
@@ -182,6 +186,22 @@ class Pipeline:
         stage('SUMMARIZING', 0.85)
         result['summary'] = self._summary(report, incident, observations, evidence_images + images,
                                           transcripts, result)
+
+    def _search(self, report, params):
+        base = report['radius_m']
+        attempts, found, radius = [], [], base
+        for step in range(params.expand_steps + 1):
+            radius = min(MAX_RADIUS_M, base + EXPAND_STEP_M * step)
+            found = self.store.candidates({**report, 'radius_m': radius})
+            attempts.append({'radius_m': radius, 'webcams': len(found)})
+            if found or radius >= MAX_RADIUS_M:
+                break
+        search = {'base_radius_m': base, 'radius_m': radius, 'step_m': EXPAND_STEP_M,
+                  'expanded': radius > base, 'attempts': attempts}
+        if search['expanded']:
+            self.store.event(report['report_id'], 'radius_expanded', f'검색 반경 자동 확대 {base:g}m → {radius:g}m',
+                             {'from': base, 'to': radius, 'webcams': len(found)})
+        return found, search
 
     def _rank(self, report, row):
         # Initial weights from the design doc; attachment context is renormalized out.

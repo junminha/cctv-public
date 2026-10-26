@@ -152,6 +152,7 @@ def plan(report, result):
     district = public['district'] if public else None
     office = _office(district)
     point = f"위도 {report['latitude']:.5f}, 경도 {report['longitude']:.5f}"
+    search = result.get('search') or {}
     steps, contacts = [], []
 
     def step(action, reason):
@@ -170,8 +171,12 @@ def plan(report, result):
         step(f"{video['camera_id']} 근거 프레임과 원본 영상을 직접 확인하세요.",
              f"{video['reason']} (자동 탐지 후보, 미확인).")
     elif outcome == 'NO_CAMERA_IN_RANGE':
+        base = search.get('base_radius_m', report['radius_m'])
+        widest = search.get('radius_m', report['radius_m'])
+        within = (f"반경 {round(base)}m에서 {round(widest)}m까지 넓혀도" if widest > base
+                  else f"반경 {round(widest)}m 안에")
         step('검색 반경을 넓혀 다시 분석하거나 현장 확인을 요청하세요.',
-             f"반경 {round(report['radius_m'])}m 안에 영상 분석이 가능한 웹캠이 없습니다.")
+             f'{within} 영상 분석이 가능한 웹캠이 없습니다.')
     elif outcome in ('CAMERA_UNAVAILABLE', 'RECORDING_UNAVAILABLE'):
         step('A 노트북 웹캠 연결·녹화 상태를 확인한 뒤 다시 분석하세요.', '분석할 영상을 받지 못했습니다.')
     elif outcome == 'MANUAL_REVIEW_REQUIRED':
@@ -216,6 +221,9 @@ def plan(report, result):
         step(summary['recommended_next_step'], 'AI 요약 제안')
 
     cautions = ['추천은 참고용입니다. 출동·조치 결정은 담당자가 합니다.', *summary.get('unverified_facts', [])]
+    if search.get('expanded'):
+        cautions.append(f"신고 반경 {round(search['base_radius_m'])}m 안에 웹캠이 없어 {round(search['radius_m'])}m까지 자동 확대해 검색했습니다. "
+                        '사건 장소와 떨어져 있을 수 있습니다.')
     if report.get('location_kind') == 'demo':
         cautions.append('시연 지점 기준 안내입니다. 공공 CCTV·관할 기관은 실제 사건 위치가 아닐 수 있습니다.')
     labels = {'urgent': '긴급', 'high': '높음', 'normal': '보통'}

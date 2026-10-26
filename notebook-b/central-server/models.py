@@ -149,6 +149,8 @@ class AnalyzeInput(BaseModel):
     sample_fps: float = Field(default=1, gt=0, le=5, allow_inf_nan=False)
     focus_fps: float = Field(default=3, gt=0, le=10, allow_inf_nan=False)
     top_k: StrictInt = Field(default=1, ge=1, le=3)
+    # Widen the search by 100 m this many times when no webcam is inside the report radius.
+    expand_steps: StrictInt = Field(default=2, ge=0, le=5)
 
 
 class RadiusInput(BaseModel):

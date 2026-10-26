@@ -49,6 +49,7 @@ async page => {
         { action: '사하구청 주정차 단속 부서에 차량 위치를 전달하세요.', reason: '판정하지 않음' }] } };
   const detail = (id) => ({ ...summary[id], details: '', occurred_at: null, owner: 'x', attachments: [], events: events[id], analysis: id === done ? analysis : null });
   const posted = [];
+  const analysisRequests = [];
   const errors = [];
   page.on('pageerror', (error) => errors.push(String(error).slice(0, 160)));
   await page.context().addCookies([{ name: 'cctv_admin', value: 'synthetic-ui-check', domain: '127.0.0.1', path: '/' }]);
@@ -67,6 +68,10 @@ async page => {
     if (!summary[id]) return route.fulfill({ status: 404, json: {} });
     if (path.endsWith('/nearby')) return route.fulfill({ json: nearby });
     if (path.endsWith('/clips')) return route.fulfill({ json: { clips: [] } });
+    if (path.endsWith('/analyze')) {
+      analysisRequests.push({ id, ...route.request().postDataJSON() });
+      return route.fulfill({ status: 202, json: summary[id].job });
+    }
     if (path.endsWith('/log')) {
       const body = route.request().postDataJSON();
       posted.push(`${id.slice(0, 4)}:${body.kind}:${body.step ?? ''}:${body.text ?? ''}`);
@@ -196,6 +201,43 @@ async page => {
   check('metrics per incident rows', metricRows.length === 2 && metricRows[0].includes('쓰러짐 의심') && metricRows[0].includes('12.4s'), metricRows.join(' / ').slice(0, 120));
   check('metrics frame reduction range', (await page.textContent('main')).includes('범위 55~67%'));
   await page.screenshot({ path: 'output/playwright/response-1920-metrics.png', fullPage: true });
+
+  // Legacy jobs omit expand_steps: the form must merge new defaults without changing their other settings.
+  summary[done].job.params.duration = 17;
+  await page.goto(base + '/');
+  await page.getByRole('button', { name: /주차장 입구/ }).click();
+  await tab('도구').click();
+  const expandSteps = panel().getByLabel('자동 확대 횟수', { exact: true });
+  check('analysis tools expose configurable automatic expansion count', await expandSteps.count() === 1);
+  if (await expandSteps.count()) {
+    check('legacy analysis params receive expansion default 2 and preserve duration', await expandSteps.inputValue() === '2'
+      && await panel().getByLabel('길이 (초)').inputValue() === '17');
+    check('expansion count input defines integer range 0 to 5', await expandSteps.getAttribute('min') === '0'
+      && await expandSteps.getAttribute('max') === '5' && await expandSteps.getAttribute('step') === '1');
+    const analyze = () => panel().getByRole('button', { name: '다시 분석', exact: true });
+    for (const invalid of ['-1', '6', '1.5', '']) {
+      await expandSteps.fill(invalid);
+      check(`invalid expansion count ${invalid || 'empty'} blocks analysis`, await analyze().isDisabled());
+    }
+    for (const count of [0, 5]) {
+      await expandSteps.fill(String(count));
+      await analyze().click();
+      await page.waitForTimeout(400);
+      check(`analysis request posts configured expansion count ${count}`, analysisRequests.some(body => body.id === done
+        && body.expand_steps === count && body.duration === 17));
+    }
+    await expandSteps.fill('2');
+    for (const width of [1920, 1366]) {
+      await page.setViewportSize({ width, height: width === 1920 ? 1080 : 768 });
+      await panel().getByRole('heading', { name: '분석 실행', exact: true }).scrollIntoViewIfNeeded();
+      check(`${width} expansion tools preserve viewport`, await page.evaluate(() =>
+        document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1));
+      await page.screenshot({ path: `output/playwright/expand-${width}-tools.png` });
+    }
+    await page.getByRole('button', { name: /정문 앞에/ }).click();
+    await tab('도구').click();
+    check('intake without params receives expansion default 2', await expandSteps.inputValue() === '2');
+  }
 
   check('no page errors', errors.length === 0, errors.join(' / '));
   return results.join('\n');

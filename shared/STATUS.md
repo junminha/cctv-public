@@ -1,5 +1,38 @@
 # 협업 인수인계
 
+## 2026-10-26 검색 반경 자동 확대 v0.7 (`work/b-app`)
+
+- Claude가 남긴 API·모델·worker·guidance 미커밋 초안을 검토하고 이어서 완성했다. `cctv 최종.md` §6.2와
+  `shared/API.md` v0.7에 따라 승인·온라인·신선도·위치 구분 조건을 통과한 cam-01/02/03 웹캠이 없으면 100m씩 다시 찾는다.
+  `expand_steps`는 정수 0~5(기본 2, 자동 분석도 동일), 상한 5000m이며 첫 후보를 찾으면 중단한다.
+  신고 저장 반경은 그대로 두고 분석의 후보·근접 순위·공공 CCTV 위치 안내에만 확대 반경을 쓴다.
+  `analysis.search`의 시도별 반경·후보 수와 `radius_expanded` 이벤트를 기록한다. 공공 CCTV 영상은 접근·분석하지 않는다.
+- 초안 보완: 영상 수신 실패·검색 소진 때도 확대 사실을 주의사항에 남긴다. 후보가 끝까지 없으면 분석에 저장된 기본/최종 반경으로
+  “Am에서 Bm까지 넓혀도” 안내한다. 반경 반올림은 표시할 때만 하여 99.6m처럼 소수인 반경을 확대했다고 오안내하지 않는다.
+- 관리자 대응/CCTV 탭에 “반경 300m → 500m 자동 확대” 형식의 실제 결과를 표시하고, 도구에 자동 확대 횟수 입력을 추가했다.
+  이전 저장 매개변수에는 기본 2회를 병합하며 기존 설정을 유지한다. 빈 값·소수·0~5 밖 값은 실행을 막는다.
+  자동 확대와 수동 반경 변경 경고를 구분하고 재분석 중·오래된 결과의 확대 안내는 숨긴다.
+  `/live` 처리 기록에는 amber 토큰의 `EXPAND` 태그로 이벤트를 표시한다. 직각·1px 선을 유지했다.
+- 실제 검증 명령과 결과:
+  - `notebook-b/central-server`에서 `C:\Users\user\Desktop\ahfzk\cctv\notebook-b\central-server\.venv\Scripts\python.exe -m pytest -q`
+    → **144 passed / 0 failed**, 77.96초(기존 118개 유지, 26개 추가). 임시 DB·가상 A·합성 클립을 사용하며 실제 시연 DB를 수정하지 않았다.
+    확대 시도·이벤트·저장 반경 불변·nearby·순위·첫 후보 중단·0회·소진·5000m 상한·입력 검증·자동 기본값·대응 문구를 검사했다.
+  - `notebook-b/admin-web`에서 `npx tsc --noEmit -p .` → 통과(exit 0), `npx eslint components lib tests` → **오류 0 / 기존 경고 2**,
+    `npx next build` → 통과(exit 0). 브라우저 검사 문구 수정 후 ESLint도 다시 통과했다.
+  - 저장소 루트에서 `npx --yes --package @playwright/cli playwright-cli -s=expand-response --raw run-code --filename=notebook-b/admin-web/tests/response-ui.js`
+    → **103 PASS / 0 FAIL**(기존 91개 보존), 페이지 오류 0.
+  - 같은 CLI의 `-s=expand-guidance --raw run-code --filename=notebook-b/admin-web/tests/guidance-ui.js`
+    → **53 PASS / 0 FAIL**(기존 11개 보존), 페이지 오류 0. 확대 표시·amber 로그·입력 전송·이전 기록 호환·재분석 최신성·경고 구분을 추가했다.
+  - 같은 CLI의 `-s=expand-wall --raw run-code --filename=output/wall-test.js`
+    → **30/30 화면 시나리오 + 신고 선택/자동 복귀 1/1 통과**. 두 해상도 모두 overflow=false, clipped=[], textClip=0, overlap=false, rounded=0, errors=0.
+- 재시작: 지정된 `C:\Users\user\.claude\jobs\cc7a2432\tmp\st.py`를 메인 venv Python으로 실행해 `current_report_id=None`을 확인한 경우만
+  `& "C:\Users\user\.claude\jobs\cc7a2432\tmp\restart.ps1"`을 실행했다. 기존 환경·DB 경로를 유지한 cctv-app 코드의 8000/3000 재시작 완료.
+  `/health` **200**, 인증 없는 `/live` **307**, 실행 중 OpenAPI의 expand_steps 정수·0~5·기본2 확인. 새 리스너 PID: B **21204**, 웹 **31912**.
+  토큰·환경파일 내용은 출력·기록하지 않았으며 Expo·Tailscale은 조작하지 않았다.
+- 위 화면 검사는 모두 **합성 응답 검사**다. 결과: `output/playwright/expand-{response,guidance,wall}-results.txt`.
+  캡처 `output/playwright/expand-{1366,1920}-{response,cctv,live,tools}.png` 8장과 `/live` 기존 시나리오 캡처를 직접 확인했다.
+  실제 A 웹캠·휴대폰·외부망을 통한 자동 확대 분석은 이번 작업에서 수행하지 않았다. `output/`·`runtime/`·`.env`는 커밋하지 않는다.
+
 ## 2026-10-26 관리자 상황판 v2 구현·검증 (`work/b-app`)
 
 - 추가 요청(2026-10-26): 지도 범례만 본문 12→11px·줄높이 18→14.85px·여백 세로8/가로12→세로6/가로8px·항목 간격4→2px·색 표시10→8px·번호 칸18→14px로 축소(실측 약243×130px); 항목 4개·공개 CCTV 체크박스 켜기/끄기·표 번호 칸18px 유지 확인. `npx tsc --noEmit -p .`, `npx eslint components lib tests`(오류0/기존 경고2), `npx next build` 통과, 3000만 재시작(8000 PID18484 유지), 루트의 `npx --yes --package @playwright/cli playwright-cli -s=legend --raw run-code --filename=notebook-b/admin-web/tests/response-ui.js` 합성 응답 검사 91 PASS/0 FAIL; `output/playwright/legend-1366-console.png` 직접 확인.

@@ -267,3 +267,14 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
   담당자 이름·메모·대응 내용·CCTV 정보는 신고자에게 주지 않는다.
 - `GET /api/v1/admin/metrics`에 `by_incident{유형:{count,review_required,mean_processing_seconds,mean_latency_seconds,mean_frames}}`,
   `frame_reduction{count,mean,min,max}`(비교 실험 측정값만) 추가.
+
+## B 검색 반경 자동 확대 (v0.7)
+
+- 분석 입력 `AnalyzeInput`에 `expand_steps`(0~5, 기본 2) 추가. 신고 반경 안에 분석 가능한 승인 웹캠이 없으면
+  100m씩 넓혀 최대 `expand_steps`번 다시 찾는다(보고서 §6.2, 예: 100 → 200 → 300m). 상한 5000m. 0이면 확대하지 않는다.
+- 신고에 저장된 `radius_m`은 바꾸지 않는다. 분석 결과 `analysis.search`:
+  `{base_radius_m, radius_m(실제 사용), step_m, expanded, attempts[{radius_m, webcams}]}`.
+  확대하면 이벤트 `radius_expanded`(메시지 "검색 반경 자동 확대 Am → Bm", data `{from,to,webcams}`)를 남긴다.
+- 확대된 반경은 이번 분석의 후보 웹캠, 순위의 근접 점수, `nearby`(공공 CCTV 안내)에 쓰인다.
+  대응 방안은 확대 사실을 주의사항에 적고, 끝까지 없으면 "Am에서 Bm까지 넓혀도 없음"으로 안내한다.
+- 자동 분석(`CCTV_AUTO_ANALYZE`)도 기본값 2를 그대로 쓴다.

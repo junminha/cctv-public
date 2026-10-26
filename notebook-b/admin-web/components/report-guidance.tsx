@@ -36,6 +36,8 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
   const best = analysis?.best_camera;
   const plan = analysis?.response_plan;
   const pending = state === "running" || state === "queued";
+  const search = !pending ? analysis?.search : undefined;
+  const analysisBaseRadius = search?.base_radius_m ?? analysis?.nearby?.radius_m;
   const logs = (events ?? []).filter((event) => event.type === "response_log");
   // Step numbers belong to this analysis's plan; logs from before it ran refer to an older plan.
   const stepLog = (index: number) => [...logs].reverse().find((event) => event.data.kind === "step" && event.data.step === index
@@ -61,6 +63,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
 
   return (
     <div role="region" aria-label="CCTV 안내 및 대응" className={`guidance ${compact ? "guidance-compact" : ""}`}>
+      {search?.expanded && <p className="border-b border-rule px-5 py-2 text-xs text-amber">반경 {Math.round(search.base_radius_m)}m → {Math.round(search.radius_m)}m 자동 확대</p>}
       {view === "response" && (
         <section role="region" aria-label="상황 카드" className="situation-card">
           {pending ? (
@@ -148,7 +151,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
       <section className="guidance-section" hidden={view !== "all"}>
         <h3 className="guidance-title">가장 적합한 CCTV</h3>
         {analysis?.nearby && (
-          <p className="guidance-note">분석 당시 반경 {analysis.nearby.radius_m}m{analysis.nearby.radius_m !== radius ? " · 현재 반경과 다릅니다. 현재 조건으로 다시 분석하세요." : " 기준"}</p>
+          <p className="guidance-note">분석 당시 반경 {analysis.nearby.radius_m}m{analysisBaseRadius !== radius ? " · 현재 반경과 다릅니다. 현재 조건으로 다시 분석하세요." : " 기준"}</p>
         )}
         {best ? (
           <>

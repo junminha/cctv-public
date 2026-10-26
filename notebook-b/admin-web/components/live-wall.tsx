@@ -29,6 +29,7 @@ const TAG_COLOR: Record<string, string> = {
   PHONE: "var(--w-tide)",
   DONE: "var(--w-beacon)",
   RERUN: "var(--w-amber)",
+  EXPAND: "var(--w-amber)",
   WARN: "var(--w-amber)",
   REVIEW: "var(--w-text)",
   LOG: "var(--w-tide)",
@@ -70,6 +71,8 @@ function buildLog(detail: ReportDetail): LogLine[] {
       add(event.created_at, "QUEUE", `분석 요청 · ${p.mode ?? "selective"} · ${p.source === "recording" ? "녹화" : "실시간"} ${p.duration ?? 10}초`);
     } else if (event.type === "analysis_rerun") {
       add(event.created_at, "RERUN", "첨부 반영 재분석");
+    } else if (event.type === "radius_expanded") {
+      add(event.created_at, "EXPAND", event.message);
     } else if (event.type === "stage") {
       const tag = STAGE_TAG[event.message] ?? event.message;
       add(event.created_at, tag, stageText(event.message, latest ? fresh : null));

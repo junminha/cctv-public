@@ -11,9 +11,12 @@ from types import SimpleNamespace
 from fastapi.testclient import TestClient
 import httpx
 import pytest
+from pydantic import ValidationError
 
 from app import create_app
+import guidance
 from intelligence import Intelligence
+from models import AnalyzeInput
 import worker as worker_module
 from test_server import ADMIN, OTHER, REPORTER, TOKENS, auth
 from test_vision import MODELS, clips  # noqa: F401 - pytest fixture
@@ -105,6 +108,9 @@ def test_selective_analysis_focuses_only_the_camera_showing_the_report(system):
     detail = analyze(client, report_id)
     assert detail['job']['state'] == 'completed', detail['job']
     analysis = detail['analysis']
+    assert analysis['search'] == {'base_radius_m': 100, 'radius_m': 100, 'step_m': 100,
+                                  'expanded': False, 'attempts': [{'radius_m': 100, 'webcams': 3}]}
+    assert not any(event['type'] == 'radius_expanded' for event in detail['events'])
     assert analysis['classification']['incident_type'] == 'FALL_SUSPECTED'
     assert analysis['outcome'] == 'REVIEW_REQUIRED'
     assert analysis['selected_camera_ids'] == ['cam-02']
@@ -163,6 +169,118 @@ def test_no_camera_in_range_and_offline_cameras_are_explicit(system):
     analysis = analyze(client, near)['analysis']
     assert analysis['outcome'] == 'NO_CAMERA_IN_RANGE'
     assert analysis['selected_camera_ids'] == []
+
+
+def relocate_webcams(client, latitude_offsets):
+    for camera, offset in latitude_offsets.items():
+        response = client.put(f'/api/v1/admin/cameras/{camera}/location', headers=auth(ADMIN), json={
+            'latitude': FALL['latitude'] + offset, 'longitude': FALL['longitude'],
+            'kind': 'demo', 'approved': True})
+        assert response.status_code == 200
+
+
+def test_empty_radius_expands_to_300_and_uses_it_for_candidates_ranking_and_nearby(system, monkeypatch):
+    client, _, _ = system
+    # About 250/270/450 m north: the first two webcams enter only on the second expansion.
+    relocate_webcams(client, {'cam-01': 0.00225, 'cam-02': 0.00243, 'cam-03': 0.00405})
+    public = [{'id': id_, 'name': '테스트 공공 CCTV', 'district': '남구', 'purpose': '생활방범',
+               'latitude': FALL['latitude'] + offset, 'longitude': FALL['longitude']}
+              for id_, offset in [('inside-expanded', 0.00225), ('outside-expanded', 0.00360)]]
+    monkeypatch.setattr(guidance, 'list_cameras', lambda *args, **kwargs: {
+        'cameras': public, 'total': len(public), 'source': {'title': '테스트 위치정보'}})
+    report_id = report(client)
+    initial = client.get(f'/api/v1/admin/reports/{report_id}/nearby', headers=auth(ADMIN)).json()
+    assert initial['webcams']['total'] == initial['public']['devices'] == 0
+    detail = analyze(client, report_id)
+    assert detail['job']['state'] == 'completed', detail['job']
+    analysis = detail['analysis']
+    assert analysis['outcome'] == 'REVIEW_REQUIRED' and analysis['selected_camera_ids'] == ['cam-02']
+    assert analysis['params']['expand_steps'] == 2
+    assert analysis['search'] == {
+        'base_radius_m': 100, 'radius_m': 300, 'step_m': 100, 'expanded': True,
+        'attempts': [{'radius_m': 100, 'webcams': 0}, {'radius_m': 200, 'webcams': 0},
+                     {'radius_m': 300, 'webcams': 2}]}
+    expansions = [event for event in detail['events'] if event['type'] == 'radius_expanded']
+    assert len(expansions) == 1
+    assert expansions[0]['message'] == '검색 반경 자동 확대 100m → 300m'
+    assert expansions[0]['data'] == {'from': 100, 'to': 300, 'webcams': 2}
+    assert detail['radius_m'] == 100
+    assert {row['camera_id'] for row in analysis['candidates']} == {'cam-01', 'cam-02'}
+    assert analysis['nearby']['radius_m'] == 300 and analysis['nearby']['webcams']['total'] == 2
+    assert analysis['nearby']['public']['devices'] == 1
+    assert analysis['nearby']['public']['recommended'][0]['id'] == 'inside-expanded'
+    for row in analysis['cameras']:
+        assert 200 < row['distance_m'] < 300
+        time_match = 1.0 if row['window']['covers_report_time'] else 0.5
+        expected = round((0.20 * (1 - row['distance_m'] / 300) + 0.15 * time_match
+                          + 0.45 * row['event_score']) / 0.80, 4)
+        assert row['rank_score'] == expected
+    assert any('100m' in caution and '300m' in caution and '떨어져' in caution
+               for caution in analysis['response_plan']['cautions'])
+    # A fresh radius guide still uses the original report, rather than the previous analysis.
+    current = client.get(f'/api/v1/admin/reports/{report_id}/nearby', headers=auth(ADMIN)).json()
+    assert current['radius_m'] == 100 and current['webcams']['total'] == 0
+    assert current['public']['devices'] == 0
+
+
+def test_expansion_stops_as_soon_as_an_eligible_webcam_is_found(system):
+    client, _, _ = system
+    relocate_webcams(client, {'cam-01': 0.00405, 'cam-02': 0.00135, 'cam-03': 0.00495})
+    detail = analyze(client, report(client), expand_steps=5)
+    analysis = detail['analysis']
+    assert analysis['search'] == {
+        'base_radius_m': 100, 'radius_m': 200, 'step_m': 100, 'expanded': True,
+        'attempts': [{'radius_m': 100, 'webcams': 0}, {'radius_m': 200, 'webcams': 1}]}
+    assert [row['camera_id'] for row in analysis['cameras']] == ['cam-02']
+    assert analysis['selected_camera_ids'] == ['cam-02']
+    expansion = next(event for event in detail['events'] if event['type'] == 'radius_expanded')
+    assert expansion['data'] == {'from': 100, 'to': 200, 'webcams': 1}
+
+
+@pytest.mark.parametrize(('radius', 'steps', 'radii'), [
+    (100, 0, [100]), (100, 2, [100, 200, 300]),
+    (4950, 5, [4950, 5000]), (5000, 5, [5000])])
+def test_empty_search_respects_disabled_expansion_budget_and_5000m_cap(system, radius, steps, radii):
+    client, _, _ = system
+    detail = analyze(client, report(client, latitude=35.3, longitude=129.3, radius_m=radius), expand_steps=steps)
+    analysis = detail['analysis']
+    assert detail['job']['state'] == 'completed'
+    assert analysis['outcome'] == 'NO_CAMERA_IN_RANGE' and analysis['selected_camera_ids'] == []
+    assert analysis['search'] == {
+        'base_radius_m': radius, 'radius_m': radii[-1], 'step_m': 100,
+        'expanded': len(radii) > 1, 'attempts': [{'radius_m': r, 'webcams': 0} for r in radii]}
+    assert analysis['nearby']['radius_m'] == radii[-1] and detail['radius_m'] == radius
+    expansions = [event for event in detail['events'] if event['type'] == 'radius_expanded']
+    assert len(expansions) == int(len(radii) > 1)
+    reasons = ' '.join(step['reason'] for step in analysis['response_plan']['steps'])
+    if len(radii) > 1:
+        assert expansions[0]['message'] == f'검색 반경 자동 확대 {radius}m → {radii[-1]}m'
+        assert expansions[0]['data'] == {'from': radius, 'to': radii[-1], 'webcams': 0}
+        assert f'{radius}m에서 {radii[-1]}m까지 넓혀도' in reasons
+    else:
+        assert f'반경 {radius}m 안에' in reasons and '까지 넓혀도' not in reasons
+
+
+@pytest.mark.parametrize('steps', range(6))
+def test_expand_steps_accepts_each_integer_in_range(steps):
+    assert AnalyzeInput(expand_steps=steps).expand_steps == steps
+
+
+@pytest.mark.parametrize('steps', [-1, 6, True, False, 1.0, 1.5, '2', None])
+def test_expand_steps_rejects_out_of_range_and_non_integer_inputs(steps):
+    with pytest.raises(ValidationError):
+        AnalyzeInput(expand_steps=steps)
+
+
+def test_expand_steps_defaults_to_two_and_invalid_api_inputs_are_rejected(system):
+    assert AnalyzeInput().expand_steps == 2
+    client, _, _ = system
+    report_id = report(client)
+    for steps in (-1, 6, True, 1.0, '2', None):
+        response = client.post(f'/api/v1/admin/reports/{report_id}/analyze', headers=auth(ADMIN),
+                               json={'expand_steps': steps})
+        assert response.status_code == 422
+        assert any(error['loc'] == ['body', 'expand_steps'] for error in response.json()['detail'])
 
 
 def test_live_source_uses_authenticated_stream_capture(system, monkeypatch):
@@ -280,6 +398,7 @@ def test_intake_queues_automatic_analysis_when_worker_enabled(tmp_path):
                                intelligence=Intelligence(SimpleNamespace(openai_api_key='')))) as client:
         created = client.post('/api/v1/reports', headers=auth(REPORTER), json=FALL).json()
         assert created['job']['params']['source'] == 'live'
+        assert created['job']['params']['expand_steps'] == 2
         past = client.post('/api/v1/reports', headers=auth(REPORTER),
                            json={**FALL, 'occurred_at': '2026-01-01T00:00:00+09:00'}).json()
         assert past['job']['params']['source'] == 'recording'

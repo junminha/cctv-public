@@ -17,6 +17,7 @@ export type AnalyzeParams = {
   sample_fps: number;
   focus_fps: number;
   top_k: number;
+  expand_steps?: number; // Older saved jobs omit this; the server defaults to two expansions.
 };
 
 export type Camera = {
@@ -178,6 +179,13 @@ export type Analysis = {
   processing_seconds?: number;
   latency_seconds?: number;
   nearby?: Nearby;
+  search?: {
+    base_radius_m: number;
+    radius_m: number;
+    step_m: number;
+    expanded: boolean;
+    attempts: { radius_m: number; webcams: number }[];
+  };
   best_camera?: BestCamera;
   response_plan?: ResponsePlan;
 };

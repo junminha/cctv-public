@@ -6,7 +6,7 @@ import { INCIDENT, kst, kstTime, OUTCOME, shortId, sourceLabel, sourceLabelAI, S
 import { ReportGuidance } from "./report-guidance";
 import { ConsoleTabs } from "./console-tabs";
 
-const DEFAULTS: AnalyzeParams = { mode: "selective", source: "live", duration: 10, sample_fps: 1, focus_fps: 3, top_k: 1 };
+const DEFAULTS: AnalyzeParams = { mode: "selective", source: "live", duration: 10, sample_fps: 1, focus_fps: 3, top_k: 1, expand_steps: 2 };
 
 function Section({ title, aside, children }: { title: string; aside?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -75,7 +75,9 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
   const priority = analysis?.response_plan?.priority ?? live.priority;
   const priorityLabel = priority === "urgent" ? "긴급" : priority === "high" ? "높음" : "보통";
   const outcome = live.job.state === "completed" || live.job.state === "failed" ? OUTCOME[live.job.stage] : null;
-  const [params, setParams] = useState<AnalyzeParams>(detail.job.params ?? DEFAULTS);
+  const [params, setParams] = useState<AnalyzeParams>({ ...DEFAULTS, ...detail.job.params });
+  const expandValid = Number.isInteger(params.expand_steps) && params.expand_steps! >= 0 && params.expand_steps! <= 5;
+  const analysisBaseRadius = analysis?.search?.base_radius_m ?? analysis?.nearby?.radius_m;
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
   const [clips, setClips] = useState<Clip[]>([]);
@@ -154,7 +156,7 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
       ]}>
         {live.job.error && <p role="alert" className="panel-alert">{outcome?.label ?? "분석 실패"} · {live.job.error}</p>}
         {analysis?.warnings?.length ? <ul role="alert" className="panel-alert">{analysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
-        {analysis?.nearby && analysis.nearby.radius_m !== detail.radius_m && <p role="alert" className="panel-alert">분석 당시 반경 {analysis.nearby.radius_m}m · 현재 반경과 다릅니다. 현재 조건으로 다시 분석하세요.</p>}
+        {analysisBaseRadius !== undefined && analysisBaseRadius !== detail.radius_m && <p role="alert" className="panel-alert">분석 당시 기본 반경 {analysisBaseRadius}m · 현재 반경과 다릅니다. 현재 조건으로 다시 분석하세요.</p>}
         {!analysis && !running && live.job.state !== "queued" && <p className="panel-alert">이번 분석에 사용할 수 있는 결과가 없습니다. 다시 분석하거나 원본을 직접 확인하세요.</p>}
         <div hidden={tab !== "response"}>{running && <div className="panel-stages"><StageTrack live={live} /></div>}</div>
         <div hidden={tab !== "cctv"}>
@@ -289,8 +291,15 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
               <input aria-label="집중 FPS" type="number" min={0.5} max={10} step={0.5} className="w-full border border-rule bg-surface px-2 py-1" value={params.focus_fps} onChange={(e) => setParams({ ...params, focus_fps: Number(e.target.value) })} />
             </span>
           </label>
+          <label className="space-y-0.5"><span className="text-ink-soft">자동 확대 횟수</span>
+            <input aria-label="자동 확대 횟수" type="number" min={0} max={5} step={1} aria-invalid={!expandValid} className="w-full border border-rule bg-surface px-2 py-1"
+              value={Number.isFinite(params.expand_steps) ? params.expand_steps : ""}
+              onChange={(event) => setParams({ ...params, expand_steps: event.target.valueAsNumber })} />
+            <span className="block text-ink-soft">0~5회 · 웹캠이 없으면 100m씩 · 최대 5000m</span>
+          </label>
         </div>
-        <button disabled={running || busy !== ""} onClick={() => act("analyze", () => api(`/api/v1/admin/reports/${detail.report_id}/analyze`, { method: "POST", json: params }), "분석을 대기열에 넣었습니다.")}
+        {!expandValid && <p role="alert" className="mt-1 text-xs text-amber">자동 확대 횟수는 0~5 사이의 정수로 입력하세요.</p>}
+        <button disabled={running || busy !== "" || !expandValid} onClick={() => act("analyze", () => api(`/api/v1/admin/reports/${detail.report_id}/analyze`, { method: "POST", json: params }), "분석을 대기열에 넣었습니다.")}
           className="mt-3 w-full bg-ink px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
           {running ? "분석 진행 중…" : analysis ? "다시 분석" : "분석 시작"}
         </button>
