@@ -2,6 +2,7 @@ import asyncio
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 import hmac
+import json
 from pathlib import Path as FilePath
 import secrets
 import statistics
@@ -9,6 +10,7 @@ import tempfile
 import threading
 import time
 from typing import Annotated
+from typing import Literal
 
 import httpx
 from fastapi import (Depends, FastAPI, File, Form, HTTPException, Path, Query, Request, UploadFile, WebSocket,
@@ -22,10 +24,13 @@ from accounts import Accounts, RateLimit
 from adapter import Adapter, AdapterError
 from attachments import LIMITS, Attachments, sniff
 from clips import Clips
-from exports import KST, report_package, reports_csv
+from exports import KST, build_manifest, report_package, reports_csv
+from evidence import (HEADERS, Evidence, analysis_busy, ensure_version, range_served, report_lock,
+                      safe_path, verify_file)
 import guidance
 from intelligence import Intelligence, local_classification
 from media import snapshot as capture_snapshot
+import media as media_tools
 from models import (AnalyzeInput, CameraId, CredentialsInput, DEMO_CAMERA_IDS, LocationInput, PasswordResetInput,
                     PreserveInput, RadiusInput, ReportInput, ResponseLogInput, ReviewInput, Username, UtcDatetime, utc)
 from public_catalog import list_cameras as public_cameras
@@ -53,6 +58,8 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
             app.state.vision = vision if vision is not None else VisionEngine(settings)
             app.state.intelligence = intelligence if intelligence is not None else Intelligence(settings)
             app.state.analysis_dir = FilePath(getattr(settings, 'analysis_dir', runtime / 'analysis'))
+            app.state.evidence = Evidence(app.state.store, app.state.attachments, app.state.clips,
+                                          app.state.analysis_dir)
             app.state.worker = None
             if getattr(settings, 'worker_enabled', False):
                 pipeline = Pipeline(settings, app.state.store, app.state.adapter, app.state.vision,
@@ -69,6 +76,14 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
     tickets, ticket_lock = {}, threading.Lock()
     snapshots = {}
     bearer = HTTPBearer(auto_error=False)
+
+    @app.middleware('http')
+    async def private_evidence(request, call_next):
+        response = await call_next(request)
+        if any(part in request.url.path for part in ('/attachments/', '/artifacts/', '/evidence',
+                                                     '/clips/', '/manifest.json', '/package.zip')):
+            response.headers.update(HEADERS)
+        return response
 
     def supplied_token(credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)]):
         return credentials.credentials if credentials is not None else ''
@@ -245,13 +260,18 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
             app.state.store.request_rerun(report_id)
         return saved
 
-    @app.get('/api/v1/reports/{report_id}/attachments/{attachment_id}')
-    def attachment(report_id: str, attachment_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
-                   identity: Annotated[dict, Depends(role('reporter', 'admin'))]):
+    @app.api_route('/api/v1/reports/{report_id}/attachments/{attachment_id}', methods=['GET', 'HEAD'])
+    def attachment(request: Request, report_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+                   attachment_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+                   identity: Annotated[dict, Depends(role('reporter', 'admin'))],
+                   disposition: Literal['inline', 'attachment'] = 'attachment'):
         owned_report(report_id, identity)
         path, metadata = app.state.attachments.path(report_id, attachment_id)
-        app.state.store.audit('attachment_downloaded', identity['subject'], report_id, attachment_id)
-        return FileResponse(path, media_type=metadata['content_type'], filename=path.name)
+        if request.method != 'HEAD' and range_served(request.headers.get('range'), path.stat().st_size):
+            event = 'evidence_view_requested' if disposition == 'inline' else 'attachment_downloaded'
+            app.state.store.audit(event, identity['subject'], report_id, 'attachment:' + attachment_id)
+        return FileResponse(path, media_type=metadata['content_type'], filename=path.name,
+                            content_disposition_type=disposition, headers=HEADERS)
 
     @app.get('/api/v1/admin/reports', dependencies=[Depends(admin)])
     def list_reports(limit: Annotated[int, Query(ge=1, le=100)] = 50,
@@ -301,16 +321,66 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
         find_report(report_id)
         return app.state.store.review(report_id, 'close', identity['subject'], payload.note)
 
-    @app.get('/api/v1/admin/reports/{report_id}/artifacts/{kind}/{owner}/{filename}',
-             dependencies=[Depends(admin)])
-    def artifact(report_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+    @app.get('/api/v1/admin/reports/{report_id}/evidence')
+    def evidence_list(report_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+                      identity: Annotated[dict, Depends(admin)]):
+        with report_lock(app.state.analysis_dir, report_id):
+            catalog = app.state.evidence.catalog(report_id)
+        catalog['items'] = [Evidence.public(item) for item in catalog['items']]
+        return catalog
+
+    @app.get('/api/v1/admin/reports/{report_id}/evidence/{item_id}')
+    def evidence_info(report_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+                      item_id: Annotated[str, Path(pattern=r'^[0-9a-f]{64}$')],
+                      identity: Annotated[dict, Depends(admin)], verify: bool = False,
+                      analysis_started_at: str | None = None):
+        with report_lock(app.state.analysis_dir, report_id):
+            item = app.state.evidence.item(report_id, item_id, analysis_started_at, verify)
+        return Evidence.public(item)
+
+    @app.get('/api/v1/admin/reports/{report_id}/evidence/{item_id}/thumbnail')
+    def evidence_preview(report_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+                         item_id: Annotated[str, Path(pattern=r'^[0-9a-f]{64}$')],
+                         identity: Annotated[dict, Depends(admin)], analysis_started_at: str | None = None):
+        with report_lock(app.state.analysis_dir, report_id):
+            item = app.state.evidence.item(report_id, item_id, analysis_started_at)
+            if not item['available'] or item['kind'] == 'audio':
+                raise HTTPException(404, 'Thumbnail unavailable')
+            if item['category'] == 'artifact':
+                source = item['_path'].read_bytes()
+            else:
+                source = item['_path']
+                verify_file(source, {'bytes': item['_recorded_bytes'], 'sha256': item['recorded_sha256']})
+        body = media_tools.thumbnail(source, item['kind'])
+        app.state.store.audit('evidence_preview_requested', identity['subject'], report_id,
+                              item['category'] + ':' + item_id)
+        return Response(body, media_type='image/jpeg', headers=HEADERS)
+
+    @app.api_route('/api/v1/admin/reports/{report_id}/artifacts/{kind}/{owner}/{filename}', methods=['GET', 'HEAD'])
+    def artifact(request: Request, report_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
                  kind: Annotated[str, Path(pattern=r'^(scan|focus|all|phone)$')],
                  owner: Annotated[str, Path(pattern=r'^[a-z0-9][a-z0-9-]{0,63}$')],
-                 filename: Annotated[str, Path(pattern=ARTIFACT)]):
-        path = app.state.analysis_dir / report_id / kind / owner / filename
-        if not path.is_file():
-            raise HTTPException(404, 'Artifact not found')
-        return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'private, max-age=60'})
+                 filename: Annotated[str, Path(pattern=ARTIFACT)], identity: Annotated[dict, Depends(admin)],
+                 disposition: Literal['inline', 'attachment'] = 'inline', analysis_started_at: str | None = None):
+        find_report(report_id)
+        with report_lock(app.state.analysis_dir, report_id):
+            path = safe_path(app.state.analysis_dir, report_id, kind, owner, filename)
+            if analysis_started_at is not None:
+                ensure_version(app.state.store, report_id, analysis_started_at)
+            catalog = app.state.evidence.catalog(report_id)
+            if not any(item['_path'] == path and item['category'] == 'artifact' for item in catalog['items']):
+                raise HTTPException(404, 'Artifact not found in current analysis')
+            if not path.is_file():
+                raise HTTPException(404, 'Artifact not found')
+            # Snapshot the image before releasing the lock used by worker directory replacement.
+            body = path.read_bytes()
+        if request.method != 'HEAD':
+            app.state.store.audit('artifact_downloaded' if disposition == 'attachment' else 'evidence_view_requested',
+                                  identity['subject'], report_id,
+                                  f'artifact:{kind}:{owner}:{filename}:{analysis_started_at or "current"}')
+        headers = {**HEADERS, 'Content-Disposition': f'{disposition}; filename="{filename}"',
+                   'Content-Length': str(len(body))}
+        return Response(body if request.method != 'HEAD' else b'', media_type='image/jpeg', headers=headers)
 
     @app.get('/api/v1/admin/exports/reports.csv')
     def export_reports(identity: Annotated[dict, Depends(admin)], start: UtcDatetime | None = None,
@@ -536,6 +606,16 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
     def download(clip_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
                  identity: Annotated[dict, Depends(admin)]):
         path = app.state.clips.download(clip_id, identity['subject'])
-        return FileResponse(path, media_type='video/mp4', filename=clip_id + '.mp4')
+        return FileResponse(path, media_type='video/mp4', filename=clip_id + '.mp4', headers=HEADERS)
+
+    @app.api_route('/api/v1/admin/clips/{clip_id}/view', methods=['GET', 'HEAD'])
+    def clip_view(request: Request, clip_id: Annotated[str, Path(pattern=r'^[0-9a-f]{32}$')],
+                  identity: Annotated[dict, Depends(admin)]):
+        path = app.state.clips.download(clip_id, identity['subject'], audit=False)
+        if request.method != 'HEAD' and range_served(request.headers.get('range'), path.stat().st_size):
+            clip = app.state.store.clip(clip_id)
+            app.state.store.audit('evidence_view_requested', identity['subject'], clip['report_id'], 'clip:' + clip_id)
+        return FileResponse(path, media_type='video/mp4', filename=clip_id + '.mp4', content_disposition_type='inline',
+                            headers=HEADERS)
 
     return app

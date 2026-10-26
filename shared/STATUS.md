@@ -1,5 +1,28 @@
 # 협업 인수인계
 
+## 2026-10-26 관리자 증거 보기·미리보기·다운로드 (`work/b-app`)
+
+- 사용자 결정: 관리자 신고 상세에서만 보기·재생·개별 다운로드. `/live`는 기록만 보여주고 증거 뷰어를 넣지 않음.
+  증거 삭제 기능·보관 기간 정책·코덱 변환 없음. 계약은 `shared/API.md` v0.8, 계획은 `shared/증거보기-미리보기-계획.md`.
+- B: `GET /api/v1/admin/reports/{id}/evidence`(첨부·현재 분석 근거·보존 영상 목록), 파일 정보(`?verify=true` 현재 SHA256),
+  썸네일(이미지 축소·영상 첫 프레임, 요청 시 생성), 첨부 `disposition=inline`, 근거 이미지 개별 다운로드, 보존 영상 `/clips/{id}/view`.
+  근거 이미지는 현재 분석이 선언한 파일만 제공(분석 대기·실행 중이면 404). 원본 첨부·보존 영상은 저장 해시와 비교 후 제공.
+  응답은 `no-store, private`·`nosniff`·`no-referrer`, Range/HEAD 지원. 보기/썸네일/다운로드 감사를 구분해 남긴다(실패한 Range는 기록 안 함).
+- 관리자 상세: 신고 내용 탭 "신고자 첨부 자료", CCTV 탭 "분석 근거 자료"(전체), 도구 탭 "보존 영상 자료"(재생·파일 정보·다운로드).
+  공통 보기 창(네이티브 모달): 이미지 확대/맞춤, 영상·음성 재생(자동 재생 없음), 이전·다음·Home/End, 구분(원본/분석본/보존 사본),
+  촬영 시각(없으면 "촬영 시각 미확인"), 기록 SHA256과 해시 검증(일치/불일치), 원본 다운로드. 기존 증거 묶음 ZIP 유지.
+- 관리자 프록시: HEAD, If-Range, ETag·Last-Modified·보안 헤더 전달, 프록시 자체 오류도 캐시 금지.
+- Codex가 서버 초안을 만들다 사용량 한도로 멈췄고, Claude가 검토·수정 후 화면·프록시를 마무리했다.
+  Codex 검사 중 별도 manifest 조회 화면 항목은 범위에서 빼고(ZIP에 manifest 포함) 여러 구간 Range는 multipart 206으로 허용했다.
+- 실제 검증:
+  - `notebook-b/central-server`: `python -m pytest -q` → **161 passed, 1 skipped**(Windows 심볼릭 링크 권한).
+  - `notebook-b/admin-web`: `npx tsc --noEmit -p .`, `npx next build` 통과, `npx eslint components lib tests` 오류 0(기존 경고 2).
+    `node tests/evidence-proxy.js` → 14/14 통과(임시 포트의 실제 Next 프록시 + 합성 B).
+  - Playwright(저장소 루트, **합성 응답 검사**): evidence-ui 29/29, response-ui 103/103, guidance-ui 55/55, live-wall-ui 168/168,
+    output/wall-test.js 30화면 모두 이상 없음.
+  - 실제 B: 최근 신고 증거 목록(첨부 2·근거 7) 조회, HEAD로 `no-store`·Range 지원 확인(감사 기록이 남지 않는 요청만 사용).
+- B 8000·관리자 3000을 새 코드로 재시작(분석 대기 상태 확인 후). 실제 브라우저에서 사람이 재생해 보는 확인은 아직이다.
+
 ## 2026-10-26 AI 분석 로그 `/live` v2 구현·검증 (`work/b-app`)
 
 - 승인된 Figma `Uxs1vW6PnDdUticcsX9FcJ`의 Live log v2(3:2/3:159/3:312/3:457/3:604/3:639, 메모 6:35)를 구현했다.

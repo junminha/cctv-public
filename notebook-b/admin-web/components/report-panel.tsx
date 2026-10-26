@@ -5,6 +5,7 @@ import { api, bPath, type AnalysisCamera, type AnalyzeParams, type Camera, type 
 import { INCIDENT, kst, kstTime, OUTCOME, shortId, sourceLabel, sourceLabelAI, STAGES } from "@/lib/labels";
 import { ReportGuidance } from "./report-guidance";
 import { ConsoleTabs } from "./console-tabs";
+import { EvidenceList, EvidenceStatus, EvidenceViewer, useEvidence, type EvidenceItem } from "./evidence-viewer";
 
 const DEFAULTS: AnalyzeParams = { mode: "selective", source: "live", duration: 10, sample_fps: 1, focus_fps: 3, top_k: 1, expand_steps: 2 };
 
@@ -117,6 +118,13 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
     api<{ clips: Clip[] }>(`/api/v1/admin/reports/${detail.report_id}/clips`).then((value) => setClips(value.clips)).catch(() => {});
   }, [detail.report_id, busy]);
 
+  // Evidence files for viewing and download; refreshed when the analysis, attachments or preserved clips change.
+  const evidenceFiles = useEvidence(detail.report_id,
+    `${analysis?.started_at ?? ""}:${live.job.state}:${detail.attachments.length}:${clips.map((clip) => clip.clip_id).join(",")}`);
+  const files = evidenceFiles.catalog?.items ?? [];
+  const [viewer, setViewer] = useState<{ items: EvidenceItem[]; index: number } | null>(null);
+  const open = (items: EvidenceItem[], index: number) => setViewer({ items, index });
+
   async function act(name: string, run: () => Promise<unknown>, done: string) {
     setBusy(name);
     setMessage("");
@@ -131,9 +139,6 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
     }
   }
 
-  const evidence = (analysis?.cameras ?? []).flatMap((row) =>
-    (row.focus ?? (analysis?.selected_camera_ids.includes(row.camera_id) ? row.all : undefined))?.evidence
-      .filter((item) => item.path).map((item) => ({ ...item, camera: row.camera_id, window: row.window })) ?? []);
   const windows = (analysis?.cameras ?? []).filter((row) => analysis?.selected_camera_ids.includes(row.camera_id) && row.window);
   const preservable = windows.filter((row) => {
     const camera = cameras.find((item) => item.id === row.camera_id);
@@ -166,27 +171,13 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         </Section>
       )}
 
-<details className="all-evidence"><summary>근거 프레임 전체 보기</summary>      {evidence.length > 0 && (
-        <Section title="근거 프레임" aside="자동 탐지 후보 · 원본 아님">
-          <div className="grid grid-cols-2 gap-2">
-            {evidence.slice(0, 4).map((item) => (
-              <figure key={`${item.camera}-${item.file}`} className="overflow-hidden border border-rule">
-                {/* eslint-disable-next-line @next/next/no-img-element -- authenticated proxy image, not optimizable */}
-                <img src={bPath(`/api/v1/admin/reports/${detail.report_id}/artifacts/${item.path}`)} alt={`${item.camera} 근거 프레임`} className="aspect-video w-full bg-chart object-cover" />
-                <figcaption className="px-2 py-1 text-[11px]">
-                  <span className="font-mono font-medium">{item.camera}</span>
-                  <span className="ml-1 font-mono text-ink-soft">
-                    {item.window ? kstTime(new Date(new Date(item.window.start).getTime() + item.timestamp_seconds * 1000).toISOString()) : `+${item.timestamp_seconds}s`}
-                  </span>
-                  <span className="block text-ink-soft">{item.findings.slice(0, 2).join(", ")}</span>
-                </figcaption>
-              </figure>
-            ))}
-          </div>
-        </Section>
-      )}
-
-</details>
+<details className="all-evidence"><summary>근거 프레임 전체 보기</summary>
+          <Section title="분석 근거 자료" aside="AI 표시가 포함된 분석본 · 원본 아님">
+            {tab === "cctv" && <EvidenceStatus loading={evidenceFiles.loading} error={evidenceFiles.error} retry={evidenceFiles.retry} />}
+            <EvidenceList label="분석 근거 자료" items={files.filter((item) => item.category === "artifact")} onOpen={open}
+              empty={evidenceFiles.catalog?.warnings[0] ?? (evidenceFiles.catalog ? "이번 분석의 근거 이미지가 없습니다." : undefined)} />
+          </Section>
+        </details>
         </div>
         <div hidden={tab !== "response" && tab !== "cctv"}>
           <ReportGuidance report={{ ...live, radius_m: detail.radius_m }} analysis={analysis} events={detail.events} onLogged={onChanged} view={tab === "cctv" ? "cctv" : "response"} />
@@ -214,17 +205,16 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
           </Section>
       {detail.attachments.length > 0 && (
         <Section title="신고자 첨부" aside="본인이 선택해 올린 자료">
-          <ul className="space-y-1 text-sm">
+          {tab === "report" && <EvidenceStatus loading={evidenceFiles.loading} error={evidenceFiles.error} retry={evidenceFiles.retry} />}
+          <EvidenceList label="신고자 첨부 자료" items={files.filter((item) => item.category === "attachment")} onOpen={open} />
+          <ul className="mt-2 space-y-1 text-xs text-ink-soft">
             {detail.attachments.map((item) => {
               const phone = analysis?.phone.find((row) => row.attachment_id === item.attachment_id);
+              if (!phone?.transcript && !phone?.analysis) return null;
               return (
                 <li key={item.attachment_id}>
-                  <a className="underline" href={bPath(item.download_path)} target="_blank" rel="noreferrer">
-                    {item.kind === "image" ? "사진" : item.kind === "audio" ? "녹음" : "영상"} · {item.original_name || item.attachment_id.slice(0, 8)}
-                  </a>
-                  <span className="ml-1 font-mono text-[11px] text-ink-soft">{(item.bytes / 1024 / 1024).toFixed(1)}MB</span>
-                  {phone?.transcript && <p className="text-xs text-ink-soft">전사(자동, 오인식 가능): {phone.transcript}</p>}
-                  {phone?.analysis && <p className="text-xs text-ink-soft">{phone.analysis.observations.map((row) => row.finding).join(" · ") || "관찰 후보 없음"}</p>}
+                  {item.original_name || item.attachment_id.slice(0, 8)}:{" "}
+                  {phone.transcript ? `전사(자동, 오인식 가능) ${phone.transcript}` : phone.analysis!.observations.map((row) => row.finding).join(" · ") || "관찰 후보 없음"}
                 </li>
               );
             })}
@@ -331,14 +321,23 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
           </button>
         )) : <p className="text-xs text-ink-soft">집중 분석된 카메라의 영상 구간이 생기면 보존할 수 있습니다. 실시간 분석 구간은 녹화가 확정되는 약 1분 뒤부터 보존됩니다.</p>}
         {clips.length > 0 && (
-          <ul className="mt-2 space-y-1 text-xs">
-            {clips.map((clip) => (
-              <li key={clip.clip_id} className="flex flex-wrap items-center gap-x-2">
-                <a className="font-mono underline" href={bPath(clip.download_path)}>{clip.camera_id} {kstTime(clip.start)}</a>
-                <span className="font-mono text-ink-soft">{clip.measured_duration.toFixed(1)}s · {clip.sha256.slice(0, 12)}…</span>
-                {!clip.duration_matches_request && <span className="text-amber">길이 불일치 · 내용 확인 필요</span>}
-              </li>
-            ))}
+          <ul aria-label="보존 영상 자료" className="mt-2 space-y-1 text-xs">
+            {clips.map((clip) => {
+              const clipFiles = files.filter((item) => item.category === "clip");
+              const at = clipFiles.findIndex((item) => item.clip_id === clip.clip_id);
+              return (
+                <li key={clip.clip_id} className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="font-mono">{clip.camera_id} {kstTime(clip.start)}</span>
+                  <span className="font-mono text-ink-soft">{clip.measured_duration.toFixed(1)}s · {clip.sha256.slice(0, 12)}…</span>
+                  {!clip.duration_matches_request && <span className="text-amber">길이 불일치 · 내용 확인 필요</span>}
+                  <span className="clip-actions">
+                    <button type="button" disabled={at < 0} onClick={() => open(clipFiles, at)}>재생</button>
+                    <button type="button" disabled={at < 0} onClick={() => open(clipFiles, at)}>파일 정보</button>
+                    <a href={bPath(clip.download_path)} download>다운로드</a>
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Section>
@@ -366,6 +365,8 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         </div>
         {message && <p role="status" className="panel-message">{message}</p>}
       </ConsoleTabs>
+      {viewer && <EvidenceViewer reportId={detail.report_id} items={viewer.items} index={viewer.index}
+        onIndex={(index) => setViewer({ ...viewer, index })} onClose={() => setViewer(null)} />}
       <details className="panel-info"><summary>ⓘ AI 결과는 확인 전 미확정 · 공공 CCTV는 위치정보만 사용</summary>
         <p>공공 CCTV 영상은 열람·분석하지 않습니다. 추천은 참고용이며 출동·조치 결정은 담당자가 합니다.</p>
         <p>긴급 상황은 분석을 기다리지 말고 기존 112·119 절차를 따르세요.</p>

@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from adapter import AdapterError
+from evidence import safe_path, verify_file
 from models import utc
 
 LIMITS = {'image': 15 * 1024 ** 2, 'audio': 25 * 1024 ** 2, 'video': 100 * 1024 ** 2}
@@ -87,7 +88,11 @@ class Attachments:
     def path(self, report_id, attachment_id):
         for attachment in self.store.attachments(report_id):
             if attachment['attachment_id'] == attachment_id:
-                path = self.folder / report_id / attachment['stored_name']
+                suffix = Path(attachment['stored_name']).suffix
+                if suffix not in ('.jpg', '.png', '.webp', '.wav', '.mp3', '.m4a', '.webm', '.mp4', '.mov') or attachment['stored_name'] != attachment_id + suffix:
+                    raise AdapterError(404, 'Attachment not found')
+                path = safe_path(self.folder, report_id, attachment['stored_name'])
                 if path.is_file():
+                    verify_file(path, attachment)
                     return path, attachment
         raise AdapterError(404, 'Attachment not found')

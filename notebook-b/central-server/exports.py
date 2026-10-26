@@ -55,7 +55,55 @@ def sha256(path):
         return hashlib.file_digest(source, 'sha256').hexdigest()
 
 
-def report_package(folder, report, clips, audit, sources, actor, media):
+def build_manifest(report, clips, audit, sources, actor, media, archive=None, check=None):
+    """Hash the exact chunks written to the ZIP, or inspect the same sources standalone."""
+    files, missing = [], []
+    documents = {'report.json': report, 'clips.json': clips, 'audit.json': audit}
+    for name, data in documents.items():
+        body = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
+        if archive is not None:
+            archive.writestr(name, body)
+        files.append({'path': name, 'bytes': len(body), 'sha256': hashlib.sha256(body).hexdigest()})
+    for name, (path, recorded) in (sources.items() if media else ()):
+        if check:
+            check()
+        if not path.is_file():
+            missing.append(name)
+            continue
+        digest, length = hashlib.sha256(), 0
+        try:
+            with path.open('rb') as source:
+                if archive is not None:
+                    output = archive.open(zipfile.ZipInfo(name), 'w', force_zip64=True)
+                else:
+                    output = None
+                try:
+                    while chunk := source.read(1024 * 1024):
+                        if output is not None:
+                            output.write(chunk)
+                        digest.update(chunk)
+                        length += len(chunk)
+                finally:
+                    if output is not None:
+                        output.close()
+        except FileNotFoundError:
+            if check:
+                check()
+            missing.append(name)
+            continue
+        entry = {'path': name, 'bytes': length, 'sha256': digest.hexdigest()}
+        if recorded is not None:
+            entry['matches_recorded_sha256'] = digest.hexdigest() == recorded
+        files.append(entry)
+    if check:
+        check()
+    return {'report_id': report['report_id'], 'generated_at': utc(), 'generated_by': actor,
+            'analysis_started_at': (report.get('analysis') or {}).get('started_at'),
+            'includes_media': media, 'files': files, 'missing': missing,
+            'note': 'SHA256 lists permit byte verification; they are not a digital signature.'}
+
+
+def report_package(folder, report, clips, audit, sources, actor, media, check=None):
     """Write the evidence ZIP to a temporary file in `folder` and return its path.
 
     `sources` maps archive names to (local path, recorded SHA256 or None). Missing files are listed
@@ -65,28 +113,9 @@ def report_package(folder, report, clips, audit, sources, actor, media):
     handle = tempfile.NamedTemporaryFile(dir=folder, suffix='.zip', delete=False)
     handle.close()
     target = Path(handle.name)
-    files, missing = [], []
-    documents = {'report.json': report, 'clips.json': clips, 'audit.json': audit}
     try:
         with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as archive:
-            for name, data in documents.items():
-                body = json.dumps(data, ensure_ascii=False, indent=2).encode('utf-8')
-                archive.writestr(name, body)
-                files.append({'path': name, 'bytes': len(body), 'sha256': hashlib.sha256(body).hexdigest()})
-            for name, (path, recorded) in (sources.items() if media else ()):
-                if not path.is_file():
-                    missing.append(name)
-                    continue
-                digest = sha256(path)
-                # Media is already compressed; storing avoids burning CPU for no gain.
-                archive.write(path, name, compress_type=zipfile.ZIP_STORED)
-                entry = {'path': name, 'bytes': path.stat().st_size, 'sha256': digest}
-                if recorded is not None:
-                    entry['matches_recorded_sha256'] = digest == recorded
-                files.append(entry)
-            manifest = {'report_id': report['report_id'], 'generated_at': utc(), 'generated_by': actor,
-                        'includes_media': media, 'files': files, 'missing': missing,
-                        'note': 'SHA256 values let the recipient verify that files were not altered after export.'}
+            manifest = build_manifest(report, clips, audit, sources, actor, media, archive, check)
             archive.writestr('manifest.json', json.dumps(manifest, ensure_ascii=False, indent=2))
     except BaseException:
         target.unlink(missing_ok=True)

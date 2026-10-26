@@ -9,6 +9,7 @@ from uuid import uuid4
 import httpx
 
 from adapter import AdapterError
+from evidence import safe_path, verify_file
 from media import inspect_clip, tool
 from models import DEMO_CAMERA_IDS, utc
 
@@ -112,11 +113,11 @@ class Clips:
             if not saved:
                 target.unlink(missing_ok=True)
 
-    def download(self, clip_id, actor):
+    def download(self, clip_id, actor, audit=True):
         clip = self.store.clip(clip_id)
         if clip is None:
             raise AdapterError(404, 'Clip not found')
-        path = self.folder / (clip_id + '.mp4')
+        path = safe_path(self.folder, clip_id + '.mp4')
         try:
             with path.open('rb') as source:
                 digest = hashlib.file_digest(source, 'sha256').hexdigest()
@@ -124,5 +125,6 @@ class Clips:
                 raise AdapterError(409, 'Preserved clip integrity check failed')
         except OSError:
             raise AdapterError(409, 'Preserved clip is unavailable') from None
-        self.store.audit('clip_downloaded', actor, clip['report_id'], clip_id)
+        if audit:
+            self.store.audit('clip_downloaded', actor, clip['report_id'], clip_id)
         return path

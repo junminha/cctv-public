@@ -278,3 +278,44 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 - 확대된 반경은 이번 분석의 후보 웹캠, 순위의 근접 점수, `nearby`(공공 CCTV 안내)에 쓰인다.
   대응 방안은 확대 사실을 주의사항에 적고, 끝까지 없으면 "Am에서 Bm까지 넓혀도 없음"으로 안내한다.
 - 자동 분석(`CCTV_AUTO_ANALYZE`)도 기본값 2를 그대로 쓴다.
+
+## B 관리자 증거 보기·미리보기 (v0.8)
+
+사용자 결정(2026-10-26): 관리자 신고 상세에서만 보기·재생·개별 다운로드를 제공한다. `/live`에 새 뷰어를 추가하지 않는다.
+증거 삭제·보관 기간 정책·코덱 변환은 범위 밖이다. 브라우저가 재생하지 못하는 형식은 원본 다운로드로 안내한다.
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| GET | `/api/v1/admin/reports/{id}/evidence` | 관리자, `{items[],analysis_started_at,warnings[]}` 자료 목록 |
+| GET | `/api/v1/admin/reports/{id}/evidence/{item_id}?verify=true` | 관리자, 파일 정보. verify=true이면 현재 SHA256 검증, 불일치도 정보에는 표시 |
+| GET | `/api/v1/admin/reports/{id}/evidence/{item_id}/thumbnail` | 관리자, 이미지 축소·영상 첫 프레임 JPEG. 음성은 404(웹은 종류 아이콘). 요청 시 생성, 영구 캐시 없음 |
+| GET/HEAD | `/api/v1/reports/{id}/attachments/{attachment_id}?disposition=inline` | 소유자·관리자, 첨부 보기. 생략 시 기존 attachment 다운로드 |
+| GET/HEAD | `/api/v1/admin/reports/{id}/artifacts/{kind}/{owner}/{file}` | 관리자, 기본 inline 분석 JPEG, disposition=attachment이면 개별 다운로드 |
+| GET/HEAD | `/api/v1/admin/clips/{clip_id}/view` | 관리자, 검증한 보존 MP4 inline. 기존 `/download` 유지 |
+
+- `EvidenceItem`: `id`(서버 생성 소문자 SHA256 식별자), `category`(attachment/artifact/clip), `kind`(image/audio/video),
+  `label`, `representation`(upload_original/remux_copy/analysis_overlay), `content_type`, `bytes`(없으면 null),
+  `stored_at`, `captured_at`, `timestamp_seconds`, `recorded_sha256`, `current_sha256`(미검증 null),
+  `integrity`(unknown/match/mismatch), `available`, `view_url`, `download_url`, `thumbnail_url`(음성/부재 null),
+  `analysis_started_at`(첨부·클립 null), 선택 `attachment_id/clip_id/camera_id/artifact_kind`.
+  목록은 첨부·현재 분석 scan/focus/all/phone·보존 클립을 포함한다. 공공 CCTV 영상과 임의 파일 경로는 받지 않는다.
+  목록에서 큰 클립의 전체 해시를 계산하지 않는다. 기록된 해시와 현재 검증 결과는 구분한다.
+- 근거 이미지는 버전 유무와 관계없이 현재 분석 결과가 선언한 파일만 제공한다(분석 대기·실행 중이면 404). 근거의 버전은 `analysis.started_at`이다. 새 자료 상세/썸네일의 artifact 요청은 `analysis_started_at` query 필수(누락422),
+  불일치·queued/running은409. 목록은 분석 중 artifacts를 생략하고 warnings에 이유를 준다.
+  기존 artifact URL의 버전 생략은 현재 파일 보기 호환 동작을 유지하되 버전 고정이라고 주장하지 않는다.
+  새 뷰어의 `view_url/download_url/thumbnail_url`에는 서버가 버전을 넣는다. 기존 `/live`의 run query는 캐시 구분 용도로만 남긴다.
+- 원본 첨부·보존 클립 보기/다운로드는 저장 bytes·SHA256과 비교하고 불일치409. 근거는 현재 분석에 속한 파일만 목록에 넣는다.
+  `captured_at`이 없으면 null이며 업로드 시각을 촬영 시각으로 표시하지 않는다. 근거 상대 시각과 구분 문구를 함께 표시한다.
+- 파일·썸네일·목록·ZIP 및 해당 오류는 `Cache-Control: no-store, private`, `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: no-referrer`. 파일명/ID/경로 소속·루트 내부·symlink/junction 탈출을 검증한다.
+  inline/attachment 외 disposition은422. Range/If-Range·206/400/416·HEAD 무본문을 유지하고 프록시에서도 전달한다
+  (여러 구간 Range는 서버 라이브러리 기본대로 multipart 206).
+  ZIP은 응답 후 임시 파일을 지우므로 이어받기를 보장하지 않는다.
+- 썸네일은 긴 변 최대320px·최대256KiB, 디코딩 입력40MP 이하, 변환10초·동시1개 제한. 도구 없음/변환 실패503,
+  변조409. 원본을 수정하지 않으며 업로드/보존 파일을 로컬 입력으로만 처리한다. 사용자 원본 영상 재인코딩은 하지 않는다.
+- 감사: inline `evidence_view_requested`, 썸네일 `evidence_preview_requested`, 근거 다운로드 `artifact_downloaded`.
+  기존 `attachment_downloaded/clip_downloaded/report_package_exported` 유지.
+  성공 응답 준비 시 기록하며 GET Range마다 요청 기록, HEAD 제외. 사람이 열람/다운로드를 완료했다는 뜻이 아니다.
+  참조는 서버 생성 파일 ID/분석 버전만 담고 토큰·로컬 경로·파일 내용은 남기지 않는다. ZIP audit.json에 포함한다.
+- 증거 묶음 ZIP의 manifest.json은 ZIP에 실제 쓰는 바이트에서 해시를 계산한다. 누락은 missing, 저장 해시 불일치는 false로 유지한다.
+  분석 자료 수집 중 queued/running 또는 버전 변경이면409로 중단한다. media=false 기록만 내보내기는 분석 중에도 가능하다.

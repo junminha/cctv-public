@@ -14,6 +14,7 @@ import time
 
 from adapter import AdapterError
 from clips import download_export, ranges_cover
+from evidence import report_lock, safe_path
 import guidance
 from media import capture_live
 from models import DEMO_CAMERA_IDS, AnalyzeInput, PreserveInput, utc
@@ -46,10 +47,11 @@ class Pipeline:
     def run(self, job):
         report = self.store.report(job['report_id'])
         params = AnalyzeInput.model_validate(job['params'])
-        folder = self.analysis_dir / report['report_id']
-        if folder.exists():
-            shutil.rmtree(folder)
-        folder.mkdir(parents=True)
+        with report_lock(self.analysis_dir, report['report_id']):
+            folder = safe_path(self.analysis_dir, report['report_id'])
+            if folder.exists():
+                shutil.rmtree(folder)
+            folder.mkdir(parents=True)
         started = time.monotonic()
         result = {'report_id': report['report_id'], 'mode': params.mode, 'params': params.model_dump(),
                   'started_at': utc(),
