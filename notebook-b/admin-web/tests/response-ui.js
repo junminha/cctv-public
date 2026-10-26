@@ -7,6 +7,8 @@ async page => {
   const base = 'http://127.0.0.1:3000';
   const urgent = 'aaaa1111bbbb2222cccc3333dddd4444';
   const done = 'eeee5555ffff6666aaaa7777bbbb8888';
+  const closed = '99990000aaaabbbbccccddddeeeeffff';
+  const confirmed = '1234567890abcdef1234567890abcdef';
   const now = Date.now();
   const iso = (ago) => new Date(now - ago).toISOString();
   const rec = (i, place) => ({ id: `public-${i}`, name: `검증용 ${place} CCTV ${i}`, district: '사하구', purpose: '생활방범',
@@ -19,18 +21,25 @@ async page => {
   const job = (id, state, stage) => ({ id: `j-${id}`, report_id: id, state, stage, progress: state === 'completed' ? 1 : 0, error: null,
     params: { mode: 'selective', source: 'live', duration: 10, sample_fps: 1, focus_fps: 3, top_k: 1 } });
   const summary = { [urgent]: { report_id: urgent, source: 'reporter', created_at: iso(5000), description: '정문 앞에 사람이 쓰러져 있어요',
-      latitude: 35.0931, longitude: 128.987, location_kind: 'demo', radius_m: 300, job: job(urgent, 'queued', 'awaiting_worker'),
+      latitude: 35.0931, longitude: 128.987, location_kind: 'demo', radius_m: 300, job: { ...job(urgent, 'queued', 'awaiting_worker'), params: null },
       review: null, outcome: null, selected_camera_ids: [], incident_type: null,
       priority: 'urgent', priority_basis: 'keywords', alert_acknowledged: false, response_logs: 0 },
     [done]: { report_id: done, source: 'demo', created_at: iso(600000), description: '주차장 입구를 차가 막고 있어요',
       latitude: 35.0931, longitude: 128.987, location_kind: 'demo', radius_m: 300, job: job(done, 'completed', 'VIDEO_NOT_VISIBLE'),
       review: null, outcome: 'VIDEO_NOT_VISIBLE', selected_camera_ids: [], incident_type: 'VEHICLE_OBSTRUCTION',
       priority: 'normal', priority_basis: 'analysis', alert_acknowledged: false, response_logs: 1 } };
+  summary[closed] = { ...summary[done], report_id: closed, description: '처리가 끝난 검증 신고', job: job(closed, 'completed', 'VIDEO_NOT_VISIBLE'),
+    review: { confirmed_at: iso(400000), confirmed_by: 'synthetic', closed_at: iso(300000), closed_by: 'synthetic' }, response_logs: 0 };
+  summary[confirmed] = { ...summary[closed], report_id: confirmed, description: '담당자 확인을 마친 검증 신고', job: job(confirmed, 'completed', 'VIDEO_NOT_VISIBLE'),
+    review: { confirmed_at: iso(400000), confirmed_by: 'synthetic', closed_at: null, closed_by: null } };
   const events = { [urgent]: [{ created_at: iso(5000), type: 'received', message: '신고 접수', data: {} }],
     [done]: [{ created_at: iso(600000), type: 'received', message: '신고 접수', data: {} },
       { created_at: iso(599000), type: 'analysis_requested', message: '분석 요청', data: {} },
       { created_at: iso(590000), type: 'analysis_finished', message: 'VIDEO_NOT_VISIBLE', data: {} },
+      { created_at: iso(595000), type: 'response_log', message: '이전 분석의 대응 단계 2 실행', data: { by: 'previous', kind: 'step', step: 1 } },
       { created_at: iso(500000), type: 'response_log', message: '대응 단계 1 실행', data: { by: 'admin', kind: 'step', step: 0, text: '신고자에게 위치 확인' } }] };
+  events[closed] = [];
+  events[confirmed] = [];
   const analysis = { report_id: done, mode: 'selective', params: job(done).params, started_at: iso(599000), finished_at: iso(590000),
     outcome: 'VIDEO_NOT_VISIBLE', cameras: [], selected_camera_ids: [], phone: [], warnings: [],
     classification: { incident_type: 'VEHICLE_OBSTRUCTION', keywords: [], source: 'local_keywords', warnings: [] },
@@ -78,6 +87,20 @@ async page => {
   const results = [];
   const check = (name, ok, extra = '') => results.push(`${ok ? 'PASS' : 'FAIL'} ${name}${extra ? ` (${extra})` : ''}`);
   const overflow = () => page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
+  const panel = () => page.getByRole('complementary', { name: '신고 상세', exact: true });
+  const tabs = () => panel().getByRole('tablist', { name: '신고 상세 탭' });
+  const tab = (name) => tabs().getByRole('tab', { name, exact: true });
+  const situation = () => panel().getByRole('region', { name: '상황 카드' });
+  const nextTask = () => situation().getByText('다음 할 일', { exact: true }).locator('..');
+  async function selectedTab(name) {
+    await tabs().getByRole('tab', { name, exact: true, selected: true }).waitFor({ timeout: 5000 });
+    await panel().getByRole('tabpanel').waitFor({ state: 'visible' });
+    check(`detail tab ${name} is selected`, await tab(name).getAttribute('aria-selected') === 'true');
+    const activePanel = panel().getByRole('tabpanel');
+    check(`detail tab ${name} controls the active panel`, await activePanel.count() === 1
+      && await tab(name).getAttribute('aria-controls') === await activePanel.getAttribute('id')
+      && await activePanel.getAttribute('aria-labelledby') === await tab(name).getAttribute('id'));
+  }
 
   for (const [w, h] of [[1920, 1080], [1366, 768]]) {
     await page.setViewportSize({ width: w, height: h });
@@ -89,11 +112,36 @@ async page => {
     check(`${w} urgent report is first in the queue`, first.includes('정문 앞에') && first.includes('긴급'));
     await page.getByRole('button', { name: /주차장 입구/ }).click();
     await page.waitForTimeout(1500);
+    await selectedTab('대응');
+    check(`${w} next task ignores steps from an older analysis`, (await nextTask().innerText()).includes('사하구청 주정차 단속 부서'));
+    check(`${w} logged step shows time and actor`, await panel().locator('.guidance-logged').count() === 1
+      && (await panel().locator('.guidance-logged').innerText()).includes('admin'));
+    await tab('대응').focus();
+    for (const [key, expected] of [['ArrowRight', 'CCTV'], ['ArrowRight', '신고 내용'], ['ArrowRight', '도구'],
+      ['ArrowRight', '대응'], ['ArrowLeft', '도구'], ['Home', '대응'], ['End', '도구']]) {
+      await page.keyboard.press(key);
+      await selectedTab(expected);
+      check(`${w} ${key} moves keyboard focus to ${expected}`, await tab(expected).evaluate(node => node === document.activeElement));
+    }
+    await tab('신고 내용').click();
+    check(`${w} report content tab preserves the report text`, (await panel().getByRole('tabpanel').innerText()).includes('주차장 입구'));
+    await tab('도구').click();
+    check(`${w} tools tab preserves analysis and evidence controls`, await panel().getByRole('heading', { name: '분석 실행', exact: true }).count() === 1
+      && await panel().getByRole('link', { name: /증거.*ZIP/ }).count() === 1);
+    await page.getByRole('button', { name: /정문 앞에/ }).click();
+    await tab('대응').waitFor();
+    await selectedTab('대응');
+    await tab('도구').click();
+    const start = panel().getByRole('button', { name: '분석 시작', exact: true });
+    check(`${w} analysis can start for queued intake without requested params`, await start.count() === 1 && await start.isEnabled());
+    await tab('CCTV').click();
+    await page.getByRole('button', { name: /주차장 입구/ }).click();
+    await selectedTab('대응');
+    await tab('CCTV').click();
     const pins = await page.locator('.rec-pin').allTextContents();
     check(`${w} numbered pins on the map`, pins.join(',') === '1,2,3', pins.join(','));
     check(`${w} first pin highlighted`, await page.locator('.rec-pin.top').count() === 1);
     check(`${w} table numbers match pins`, (await page.locator('.guidance-table .rec-num').allTextContents()).join(',') === '1,2,3');
-    check(`${w} logged step shows time and actor`, await page.locator('.guidance-logged').count() === 1);
     check(`${w} no horizontal overflow`, !(await overflow()));
     await page.screenshot({ path: `output/playwright/response-${w}-console.png` });
   }
@@ -104,8 +152,21 @@ async page => {
   check('pin popup lists location and purpose', popup.includes('위도') && popup.includes('생활방범') && popup.includes('영상 미분석'), popup.slice(0, 60));
   await page.keyboard.press('Escape');
 
+  const filters = page.getByRole('tablist', { name: '신고 목록 필터' });
+  const queue = page.getByRole('complementary', { name: '접수된 신고', exact: true });
+  for (const [filter, expected] of [['긴급', ['정문 앞에']], ['완료', ['처리가 끝난', '담당자 확인을 마친']], ['처리 중', ['정문 앞에', '주차장 입구']]]) {
+    await filters.getByRole('tab', { name: new RegExp(`^${filter}`) }).click();
+    const descriptions = await queue.locator('ul li button').allTextContents();
+    check(`queue ${filter} filter shows only matching reports`, descriptions.length === expected.length
+      && expected.every(text => descriptions.some(description => description.includes(text))), descriptions.join(' | '));
+  }
+  await page.getByRole('button', { name: /주차장 입구/ }).click();
+  await tab('대응').click();
+  check('next task remains the first unrecorded step before logging', (await nextTask().innerText()).includes('사하구청 주정차 단속 부서'));
   await page.getByRole('button', { name: '실행 기록' }).first().click();
   await page.waitForTimeout(800);
+  check('next task changes after the current analysis step is recorded', !(await nextTask().innerText()).includes('사하구청 주정차 단속 부서')
+    && /완료|모든.*기록|모두.*기록/.test(await nextTask().innerText()));
   await page.getByLabel('대응 메모').fill('구청에 전화함');
   await page.getByRole('button', { name: '기록', exact: true }).click();
   await page.waitForTimeout(800);

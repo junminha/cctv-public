@@ -1,5 +1,40 @@
 # 협업 인수인계
 
+## 2026-10-26 관리자 상황판 v2 구현·검증 (`work/b-app`)
+
+- 승인된 Figma `Admin console v2` (44:261 / 44:334 / 44:407 / 44:480 / 44:553)를 관리자 웹에 구현했다.
+  상단 독립 긴급 배너(기존 알림음·확인 기록·보기 동작 유지), 신고 목록 긴급/처리 중/완료 필터,
+  대응/CCTV/신고 내용/도구 탭과 좌우 화살표·Home·End 키 이동을 제공한다. 신고를 바꾸면 대응 탭으로 돌아가며 탭 전환 시 입력은 유지한다.
+- 상황 카드의 우선순위는 이번 분석의 대응 계획, 없으면 스냅샷 우선순위다. 다음 할 일은 이번 `finished_at` 이후 실행 기록이 없는 첫 단계다.
+  완료 단계는 다시 펼칠 수 있고, 현재 단계만 근거·실행 기록을 펼치며 미래 단계는 제목만 표시한다.
+  재분석 중·실패 후 이전 결과가 남았을 때 상세와 지도 모두 이전 선정·순위를 숨긴다.
+- CCTV 탭은 카메라별 실제 순위·근거 썸네일과 공공 CCTV 간결한 추천을 표시한다. 좌표·용도·추천 이유는 지도 번호 핀에서 확인한다.
+  신고문·위치·첨부·음성 전사·요약, 반경·분석 매개변수·비교·보존·ZIP·전체 처리 기록·확인·종결 기능을 각 탭에 보존했다.
+  공공 CCTV 영상은 열람·분석하지 않는다. 서버·API·DB·A 코드는 변경하지 않았다. Figma 파일도 변경하지 않았다.
+- 시안과의 차이: 긴 실제 문구·기록은 고정 높이로 자르지 않고 상세 패널 안에서 스크롤한다. 비교 실험은 기존 방식 선택과 분석 실행 흐름을 유지한다.
+  지도 신고 지점·반경은 색 토큰 제한에 맞춰 기존 보라색 대신 `beacon` 주황색을 사용한다. 예시 수치·이미지는 제품 코드에 넣지 않았다.
+- 실제 검증 명령과 결과:
+  - `notebook-b/admin-web`: `npx tsc --noEmit -p .` → 통과(exit 0).
+  - 같은 위치: `npx eslint components lib tests` → 오류 **0**, 기존 경고 **2** (`system-status.tsx`, `lib/api.ts` 로그인 이동).
+  - 같은 위치: `npx next build` → 통과(exit 0). 초기 Turbopack 캐시에 이전 CSS가 남아 새 규칙이 빠진 것을 산출물로 확인했다.
+    이 worktree의 `.next/cache`만 `.next/cache-before-admin-v2`로 보관 후 재빌드해 새 CSS 포함을 확인했다. 설정 파일은 바꾸지 않았다.
+  - `notebook-b/central-server`: `C:\Users\user\Desktop\ahfzk\cctv\notebook-b\central-server\.venv\Scripts\python.exe -m pytest -q`
+    → **118 passed**, 76.76초. 8000 서버 재시작 없이 수행했다.
+  - 관리자 3000: 명령줄의 `cctv-app` 경로·`next start`·3000 포트를 확인한 해당 프로세스와 부모 cmd만 종료하고,
+    `notebook-b/admin-web`에서 `npx next start -p 3000 -H 127.0.0.1`을 `Start-Process -WindowStyle Hidden`으로 분리 실행했다.
+    `/login` HTTP 200 확인. B 8000 리스너 PID **18484**는 시작 전·후 동일하며 Expo·Tailscale은 조작하지 않았다.
+  - 저장소 루트: `npx --yes --package @playwright/cli playwright-cli -s=ui --raw run-code --filename=notebook-b/admin-web/tests/response-ui.js`
+    → **91 PASS / 0 FAIL**, 페이지 오류 0. 기존 24개 항목을 보존하고 탭·ARIA·키보드·다음 할 일·이전 분석 기록·3개 목록 필터·요청 전 분석 시작 검사를 추가했다.
+  - 저장소 루트: `npx --yes --package @playwright/cli playwright-cli -s=guidance --raw run-code --filename=notebook-b/admin-web/tests/guidance-ui.js`
+    → **11 PASS / 0 FAIL**, 페이지 오류 0. 1920/1366 상세·`/live`, 반경 저장, 빈/이전 형식 결과, 오류/재시도,
+    지연 신고 전환, 미래 단계 조작 차단, 재분석 중 지도 순위 제거, 실행 중/실패 후 결과 최신성을 확인했다.
+  - 저장소 루트: `npx --yes --package @playwright/cli playwright-cli -s=wall --raw run-code --filename=output/wall-test.js`
+    → **30/30 화면 시나리오 + 신고 선택/자동 복귀 1/1 통과**. 두 해상도에서 overflow=false, clipped=[], textClip=0, overlap=false, errors=0.
+    오래된 이 스크립트의 `/nearby` 모의 응답이 신고 상세를 반환하던 문제만 최신 계약 형태로 보완했다. `output/`은 커밋하지 않는다.
+- 위 Playwright 결과는 모두 **합성 응답 검사**다. 캡처는 `output/playwright/admin-v2-{1920,1366}-{response,cctv,report,tools,pending}.png` 10개,
+  `guidance-*.png`, `response-*.png`, `wall-*.png`이며 직접 열어 배치·겹침·잘림을 확인했다. 결과는 `admin-v2-response-results.txt`, `admin-v2-guidance-results.txt`에도 남겼다.
+  실제 A 웹캠 AI 분석·OpenAI 호출·실제 알림음 청음·휴대폰·외부망 검증은 이번 작업에서 수행하지 않았다.
+
 기준일: 2026-10-23. A/B 공동 인수인계 문서다. B 작업은 **노트북 B**, `work/b-server` 브랜치에서 진행한다.
 
 ## 진행 범위

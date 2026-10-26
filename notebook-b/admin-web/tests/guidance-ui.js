@@ -8,6 +8,8 @@ async page => {
   const first = '11111111222233334444555566667777';
   const second = '8888888899990000aaaabbbbccccdddd';
   const at = '2026-10-23T07:00:00.000Z';
+  const cameras = [{ id: 'cam-02', name: '검증 웹캠 2', online: true, recording: true, fresh: true, approved: true, demo_source: true,
+    latitude: 35.23105, longitude: 129.08405, kind: 'demo', zone: '검증 구역', synced_at: at }];
   const publicCamera = { id: 'public-test', name: '검증용 사거리 CCTV', district: '테스트구', purpose: '생활방범',
     latitude: 35.23112, longitude: 129.08412, distance_m: 42, device_count: 2, place: '도로·교차로', score: .82,
     reasons: ['신고 지점에서 42m', '이름으로 본 장소: 도로·교차로 (사건 유형과 맞음)'] };
@@ -22,7 +24,8 @@ async page => {
       job: { id: `job-${id}`, report_id: id, state: 'completed', stage: 'REVIEW_REQUIRED', progress: 1 }, details: '', occurred_at: null,
       owner: 'synthetic', attachments: [], events: [], analysis: { report_id: id, mode: 'selective',
         params: { mode: 'selective', source: 'live', duration: 10, sample_fps: 1, focus_fps: 3, top_k: 1 },
-        started_at: at, outcome: 'REVIEW_REQUIRED', cameras: [], selected_camera_ids: ['cam-02'], phone: [], warnings: [],
+        started_at: at, finished_at: at, outcome: 'REVIEW_REQUIRED', cameras: [{ camera_id: 'cam-02', distance_m: 11, zone: '검증 구역',
+          status: 'available', rank_score: .91, event_score: .7 }], selected_camera_ids: ['cam-02'], phone: [], warnings: [],
         nearby: nearby(), best_camera: { video: { camera_id: 'cam-02', name: '검증 웹캠 2', zone: '검증 구역',
           latitude: 35.231, longitude: 129.084, distance_m: 11, event_score: .7, reason: '영상 분석에서 관련 장면 후보: 누운 자세 후보' },
           public: id === first ? publicCamera : { ...publicCamera, name: '두 번째 위치 CCTV' }, note: '웹캠 영상에서 관련 장면 후보가 나온 카메라를 먼저 확인하세요.' },
@@ -59,10 +62,15 @@ async page => {
     return route.fulfill({ json: records[id] });
   });
   await page.routeWebSocket('ws://127.0.0.1:8000/ws/v1/admin', ws => {
-    ws.onMessage(() => ws.send(JSON.stringify({ type: 'snapshot', reports: Object.values(records), cameras: [], time: at, worker_running: true })));
+    ws.onMessage(() => ws.send(JSON.stringify({ type: 'snapshot', reports: Object.values(records), cameras, time: at, worker_running: true })));
   });
   const results = [];
   const guidance = () => page.getByRole('region', { name: 'CCTV 안내 및 대응' });
+  const detailPanel = () => page.getByRole('complementary', { name: '신고 상세', exact: true });
+  async function switchTab(path, name) {
+    if (path === '/') await detailPanel().getByRole('tablist', { name: '신고 상세 탭' }).getByRole('tab', { name, exact: true }).click();
+  }
+  const responseArea = (path) => path === '/' ? detailPanel() : guidance();
   const has = async (locator, text) => {
     await locator.getByText(text, { exact: false }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 7000 });
   };
@@ -70,6 +78,7 @@ async page => {
     await page.goto(base + path);
     await page.getByRole('button', { name: /검증 신고 하나/ }).waitFor();
     if (path === '/') await page.getByRole('button', { name: /검증 신고 하나/ }).click();
+    await switchTab(path, 'CCTV');
     await guidance().getByRole('heading', { name: /^반경 안 CCTV/ }).waitFor({ timeout: 5000 });
   }
   for (const width of [1920, 1366]) {
@@ -79,23 +88,50 @@ async page => {
       await visit(path);
       await has(guidance(), '공공 CCTV 4대');
       await has(guidance(), '웹캠 영상 후보 3대');
-      await has(guidance(), '긴급');
-      await has(guidance(), '119 신고 여부 확인');
-      await has(guidance(), '가장 적합한 CCTV');
-      await has(guidance(), 'cam-02');
+      await switchTab(path, '대응');
+      await has(responseArea(path), '긴급');
+      await has(responseArea(path), '119 신고 여부 확인');
+      await has(responseArea(path), '가장 적합한 CCTV');
+      await has(responseArea(path), 'cam-02');
+      if (path === '/') {
+        const steps = guidance().locator('.guidance-steps > li');
+        const futureControls = await steps.nth(1).locator('details, summary, button').count();
+        results.push(`${futureControls === 0 ? 'PASS' : 'FAIL'} ${width} future unrecorded step is title only`);
+        if (await steps.first().locator('details').getAttribute('open') === null) throw new Error('Current response step must be expanded');
+      }
+      if (path === '/') await detailPanel().locator('.panel-info > summary').click();
+      await has(responseArea(path), '출동·조치 결정은 담당자가 합니다');
+      await switchTab(path, 'CCTV');
       const disclosure = guidance().getByText('공공 CCTV 추천 목록', { exact: true });
       if (path === '/live') await disclosure.click();
       await has(guidance(), '검증용 사거리 CCTV');
-      await has(guidance(), '35.23112');
-      await has(guidance(), '생활방범');
-      await has(guidance(), '이름으로 추정');
-      await has(guidance(), '공공 CCTV 영상은 열람·분석하지 않습니다');
-      await has(guidance(), '출동·조치 결정은 담당자가 합니다');
+      if (path === '/') {
+        const tableText = await guidance().locator('.guidance-table').innerText();
+        if (/35\.23112|생활방범|이름으로 추정/.test(tableText)) throw new Error('Detailed public CCTV metadata remains in the concise recommendation table');
+        await page.locator('.rec-pin').first().click();
+        const popup = page.locator('.leaflet-popup-content');
+        await has(popup, '35.23112');
+        await has(popup, '생활방범');
+        await has(popup, '이름으로 추정');
+        await has(popup, '영상 미분석');
+        await page.keyboard.press('Escape');
+        const popupClose = page.locator('.leaflet-popup-close-button');
+        if (await popupClose.count()) await popupClose.click();
+        const info = detailPanel().locator('details').filter({ hasText: '공공 CCTV 영상은 열람·분석하지 않습니다' });
+        if (await info.count() && await info.first().getAttribute('open') === null) await info.first().locator('summary').click();
+        await has(detailPanel(), '공공 CCTV 영상은 열람·분석하지 않습니다');
+      } else {
+        await has(guidance(), '35.23112');
+        await has(guidance(), '생활방범');
+        await has(guidance(), '이름으로 추정');
+        await has(guidance(), '공공 CCTV 영상은 열람·분석하지 않습니다');
+      }
       await guidance().getByRole('heading', { name: /^반경 안 CCTV/ }).scrollIntoViewIfNeeded();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1 || document.documentElement.scrollHeight > innerHeight + 1);
       if (overflow) throw new Error(`Viewport overflow at ${width} ${path}`);
       await page.screenshot({ path: `output/playwright/guidance-${width}-${path === '/' ? 'report' : 'live'}.png` });
-      await guidance().getByRole('heading', { name: /^대응 방안 추천/ }).scrollIntoViewIfNeeded();
+      await switchTab(path, '대응');
+      await guidance().getByRole('heading', { name: /^대응 (방안 추천|단계)/ }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `output/playwright/guidance-response-${width}-${path === '/' ? 'report' : 'live'}.png` });
       results.push(`${width} ${path}: counts, recommendation, coordinates, purpose, response plan, viewport PASS`);
     }
@@ -104,9 +140,11 @@ async page => {
   reset(); scenario = 'normal';
   await visit('/');
   await has(guidance(), '공공 CCTV 4대');
-  await page.locator('input[type=number]').first().fill('200');
+  await switchTab('/', '도구');
+  await detailPanel().locator('input[type=number]').first().fill('200');
+  await switchTab('/', 'CCTV');
   await has(guidance(), '공공 CCTV 8대');
-  await has(guidance(), '분석 당시 반경 100m');
+  await has(detailPanel(), '분석 당시 반경 100m');
   results.push('Saved radius refresh and historical analysis label PASS');
 
   for (const path of ['/', '/live']) {
@@ -115,12 +153,14 @@ async page => {
     await visit(path);
     await has(guidance(), '공공 CCTV 0대');
     await has(guidance(), '반경 안 공공 CCTV가 없습니다');
-    await has(guidance(), '분석 완료 후');
+    await switchTab(path, '대응');
+    await has(responseArea(path), '분석 완료 후');
     reset(); scenario = 'normal';
     delete records[first].analysis.nearby; delete records[first].analysis.best_camera; delete records[first].analysis.response_plan;
     await visit(path);
     await has(guidance(), '공공 CCTV 4대');
-    await has(guidance(), '다시 분석');
+    await switchTab(path, '대응');
+    await has(responseArea(path), '다시 분석');
     reset(); scenario = 'error';
     await visit(path);
     await has(guidance(), '안내 서비스 점검 중');
@@ -141,26 +181,34 @@ async page => {
   await has(guidance(), '119 신고 여부 확인');
   delayNearby = false;
   reset();
+  await visit('/');
+  await page.locator('.score-tag').filter({ hasText: 'cam-02 0.91' }).waitFor({ state: 'visible' });
   records[first].job = { ...records[first].job, state: 'running', stage: 'SCANNING' };
   records[first].events = [{ type: 'analysis_requested', created_at: '2026-10-23T07:01:00.000Z', message: '분석 요청', data: {} }];
   for (const path of ['/', '/live']) {
     await visit(path);
     await has(guidance(), '공공 CCTV 4대');
-    if ((await guidance().innerText()).includes('119 신고 여부 확인')) throw new Error('Previous run guidance shown during rerun');
+    if (path === '/') results.push(`${await page.locator('.score-tag').count() === 0 ? 'PASS' : 'FAIL'} rerun removes previous map camera ranking`);
+    await switchTab(path, '대응');
+    if ((await responseArea(path).innerText()).includes('119 신고 여부 확인')) throw new Error('Previous run guidance shown during rerun');
   }
   records[first].job = { ...records[first].job, state: 'failed', stage: 'MANUAL_REVIEW_REQUIRED', error: 'B server restarted during analysis' };
   for (const path of ['/', '/live']) {
     await visit(path);
     await has(guidance(), '공공 CCTV 4대');
-    if ((await guidance().innerText()).includes('119 신고 여부 확인')) throw new Error(`Previous guidance reappeared after failed rerun on ${path}`);
+    await switchTab(path, '대응');
+    if ((await responseArea(path).innerText()).includes('119 신고 여부 확인')) throw new Error(`Previous guidance reappeared after failed rerun on ${path}`);
   }
   records[first].analysis.started_at = '2026-10-23T07:02:00.000Z';
+  records[first].analysis.finished_at = '2026-10-23T07:03:00.000Z';
   records[first].analysis.outcome = 'MANUAL_REVIEW_REQUIRED';
   for (const path of ['/', '/live']) {
     await visit(path);
-    await has(guidance(), '119 신고 여부 확인');
+    await switchTab(path, '대응');
+    await has(responseArea(path), '119 신고 여부 확인');
   }
   if (errors.length) throw new Error(errors.join('\n'));
+  if (results.some(result => result.startsWith('FAIL'))) throw new Error(results.join('\n'));
   results.push('Delayed report switching, auto-follow, running/failed rerun freshness and fresh failure guidance PASS');
   return results.join('\n');
 }

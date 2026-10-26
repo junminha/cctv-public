@@ -26,7 +26,13 @@ export function Console() {
   const selected = reports.find((report) => report.report_id === selectedId) ?? null;
   const [preview, setPreview] = useState<{ id: string; radius: number } | null>(null);
   // Show the radius being dragged right away instead of waiting for the save and the next live snapshot.
-  const mapSelected = selected && preview?.id === selected.report_id ? { ...selected, radius_m: preview.radius } : selected;
+  const currentDetail = detail?.report_id === selectedId ? detail : null;
+  const lastRun = currentDetail?.events.map((event) => event.type).lastIndexOf("analysis_requested") ?? -1;
+  const analysis = currentDetail?.analysis;
+  const currentAnalysis = analysis && selected?.job.state !== "running" && selected?.job.state !== "queued"
+    && (lastRun < 0 || Date.parse(analysis.started_at) >= Date.parse(currentDetail!.events[lastRun].created_at)) ? analysis : null;
+  const mapSelected = selected ? { ...selected, selected_camera_ids: currentAnalysis?.selected_camera_ids ?? [],
+    radius_m: preview?.id === selected.report_id ? preview.radius : selected.radius_m } : null;
   // Refetch the full detail whenever the live job state for the selected report changes.
   const jobKey = selected ? `${selected.job.state}:${selected.job.stage}:${selected.job.progress}:${selected.review?.closed_at}:${selected.response_logs ?? 0}:${selected.alert_acknowledged}` : "";
 
@@ -62,8 +68,10 @@ export function Console() {
   const refresh = () => selectedId && api<ReportDetail>(`/api/v1/admin/reports/${selectedId}`).then(setDetail).catch(() => {});
 
   return (
-    <main className="grid flex-1 grid-cols-1 lg:min-h-0 lg:grid-cols-[300px_minmax(0,1fr)_460px] lg:overflow-hidden">
-      <aside className="order-2 border-rule bg-surface lg:order-1 lg:min-h-0 lg:overflow-y-auto lg:border-r">
+    <main className="admin-console">
+      <div className="console-urgent"><UrgentBanner reports={reports} onShow={select} /></div>
+      <div className="console-workspace">
+      <aside aria-label="접수된 신고" className="console-queue border-rule bg-surface lg:border-r">
         <ReportQueue
           reports={byUrgency(reports)}
           selectedId={selectedId}
@@ -72,12 +80,12 @@ export function Console() {
         />
       </aside>
 
-      <section className="relative order-1 h-[55vh] lg:order-2 lg:h-auto lg:min-h-0">
+      <section aria-label="신고 위치 지도" className="console-map relative">
         <ChartMap
           reports={reports}
           cameras={cameras}
           selected={mapSelected}
-          ranking={detail?.report_id === selectedId ? detail?.analysis?.cameras ?? [] : []}
+          ranking={currentAnalysis?.cameras ?? []}
           draft={null}
           picking={false}
           showPublic={showPublic}
@@ -86,14 +94,11 @@ export function Console() {
           onPublicCount={setPublicCount}
           recommended={recommended}
         />
-        <div className="absolute left-14 right-3 top-3 z-[600]">
-          <UrgentBanner reports={reports} onShow={select} />
-        </div>
         <div className="pointer-events-none absolute bottom-6 left-3 z-[500]">
-          <div className="pointer-events-auto rounded border border-rule bg-surface/95 px-3 py-2 text-xs shadow-sm">
+          <div className="console-legend pointer-events-auto border border-rule bg-surface px-3 py-2 text-xs">
             <p className="mb-1 font-medium">지도 범례</p>
             <ul className="space-y-1 text-ink-soft">
-              <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-violet-600" />신고 지점과 검색 반경</li>
+              <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 bg-beacon" />신고 지점과 검색 반경</li>
               <li className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
               <li className="flex items-center gap-2"><span className="rec-num top">1</span>선택한 신고의 추천 공공 CCTV 순위 (위치정보 기준)</li>
               <li className="flex items-center gap-2">
@@ -113,20 +118,21 @@ export function Console() {
         </div>
       </section>
 
-      <aside className="order-3 border-rule bg-surface lg:min-h-0 lg:overflow-y-auto lg:border-l">
+      <aside aria-label="신고 상세" className="console-detail border-rule bg-surface lg:border-l">
         {selected && detail && detail.report_id === selected.report_id ? (
           <ReportPanel key={detail.report_id} detail={detail} live={selected} cameras={cameras} onChanged={refresh}
             onRadiusPreview={(radius) => setPreview({ id: detail.report_id, radius })} />
         ) : (
           <div className="p-6 text-sm text-ink-soft">
             <p className="font-display text-2xl text-ink">신고를 선택하세요</p>
-            <p className="mt-2">왼쪽 목록이나 지도의 보라 지점을 누르면 후보 카메라, 분석 근거, 요약이 여기에 표시됩니다.</p>
+            <p className="mt-2">왼쪽 목록이나 지도의 신고 지점을 누르면 후보 카메라, 분석 근거, 요약이 여기에 표시됩니다.</p>
             <p className="mt-2">
               접수된 신고 전체는 왼쪽 위 <strong className="text-ink">CSV 내보내기</strong>로, 신고 1건의 증거 자료는 상세 화면의 <strong className="text-ink">증거 묶음 다운로드</strong>로 받을 수 있습니다.
             </p>
           </div>
         )}
       </aside>
+      </div>
     </main>
   );
 }

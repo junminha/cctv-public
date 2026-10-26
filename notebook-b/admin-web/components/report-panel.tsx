@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, bPath, type AnalysisCamera, type AnalyzeParams, type Camera, type Clip, type ReportDetail, type ReportSummary } from "@/lib/api";
 import { INCIDENT, kst, kstTime, OUTCOME, shortId, sourceLabel, sourceLabelAI, STAGES } from "@/lib/labels";
 import { ReportGuidance } from "./report-guidance";
+import { ConsoleTabs } from "./console-tabs";
 
 const DEFAULTS: AnalyzeParams = { mode: "selective", source: "live", duration: 10, sample_fps: 1, focus_fps: 3, top_k: 1 };
 
@@ -29,7 +30,7 @@ function StageTrack({ live }: { live: ReportSummary }) {
         const reached = done || (index >= 0 && position <= index);
         const current = !done && position === index;
         return (
-          <li key={stage.key} className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${current ? "bg-beacon text-white" : reached ? "bg-tide-wash text-tide" : "bg-chart text-ink-soft"}`}>
+          <li key={stage.key} className={`flex items-center gap-1 px-1.5 py-0.5 ${current ? "bg-beacon text-white" : reached ? "bg-tide-wash text-tide" : "bg-chart text-ink-soft"}`}>
             <span className="font-mono">{position + 1}</span>
             {stage.label}
           </li>
@@ -39,51 +40,23 @@ function StageTrack({ live }: { live: ReportSummary }) {
   );
 }
 
-function ScoreBar({ value, tone }: { value: number | undefined; tone: "beacon" | "tide" }) {
-  if (value === undefined) return <span className="text-ink-soft">—</span>;
-  return (
-    <span className="flex items-center gap-1.5">
-      <span className="h-1.5 w-16 overflow-hidden rounded-full bg-chart">
-        <span className={`block h-full ${tone === "beacon" ? "bg-beacon" : "bg-tide"}`} style={{ width: `${Math.round(value * 100)}%` }} />
-      </span>
-      <span className="font-mono tabular">{value.toFixed(2)}</span>
-    </span>
-  );
-}
-
-function Ranking({ cameras, selected }: { cameras: AnalysisCamera[]; selected: string[] }) {
-  const sorted = [...cameras].sort((a, b) => (b.rank_score ?? -1) - (a.rank_score ?? -1));
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead className="text-left text-ink-soft">
-          <tr><th className="py-1 font-medium">카메라</th><th className="font-medium">거리</th><th className="font-medium">영상 관련성</th><th className="font-medium">순위 점수</th><th className="font-medium">프레임</th></tr>
-        </thead>
-        <tbody>
-          {sorted.map((row) => {
-            const chosen = selected.includes(row.camera_id);
-            const frames = (row.scan?.processed_frames ?? 0) + (row.focus?.processed_frames ?? 0) + (row.all?.processed_frames ?? 0);
-            return (
-              <tr key={row.camera_id} className="border-t border-rule">
-                <td className="py-1.5">
-                  <span className="font-mono font-medium">{row.camera_id}</span>
-                  {chosen && <span className="ml-1.5 rounded bg-beacon px-1 py-px text-[10px] font-bold text-white">집중 분석</span>}
-                  {row.zone && <span className="block text-[10px] text-ink-soft">{row.zone}</span>}
-                </td>
-                <td className="font-mono tabular">{row.distance_m.toFixed(0)}m</td>
-                <td>{row.status === "available" ? <ScoreBar value={row.event_score ?? row.all?.relevance_score} tone="tide" /> : <span className="text-amber">{row.status === "RECORDING_UNAVAILABLE" ? "녹화 없음" : "연결 불가"}</span>}</td>
-                <td><ScoreBar value={row.rank_score} tone="beacon" /></td>
-                <td className="font-mono tabular text-ink-soft">{frames || "—"}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-      <p className="mt-1.5 text-[11px] text-ink-soft">
-        순위 점수 = (0.20·근접 + 0.15·시간 일치 + 0.45·영상 관련성) ÷ 0.80. 관련성이 0인 카메라는 집중 분석하지 않습니다.
-      </p>
-    </div>
-  );
+function Ranking({ cameras, selected, reportId }: { cameras: AnalysisCamera[]; selected: string[]; reportId: string }) {
+  return <ol className="camera-ranking">{[...cameras].sort((a,b) => (b.rank_score ?? -1) - (a.rank_score ?? -1)).map((row, index) => {
+    const chosen = selected.includes(row.camera_id);
+    const frames = (row.scan?.processed_frames ?? 0) + (row.focus?.processed_frames ?? 0) + (row.all?.processed_frames ?? 0);
+    const evidence = (row.focus ?? row.all ?? row.scan)?.evidence.find((item) => item.path);
+    const relevance = row.event_score ?? row.all?.relevance_score;
+    return <li key={row.camera_id} className={chosen ? "chosen" : ""}>
+      {evidence ? <a href={bPath(`/api/v1/admin/reports/${reportId}/artifacts/${evidence.path}`)} target="_blank" rel="noreferrer" aria-label={`${row.camera_id} 근거 프레임 원본 크기로 보기`}>
+        {/* eslint-disable-next-line @next/next/no-img-element -- authenticated artifact proxy */}
+        <img src={bPath(`/api/v1/admin/reports/${reportId}/artifacts/${evidence.path}`)} alt={`${row.camera_id} 근거 프레임`} />
+      </a> : <span className="camera-no-evidence">근거 프레임 없음</span>}
+      <div><p><strong className="font-mono">{index + 1} {row.camera_id} · {Math.round(row.distance_m)}m</strong> {chosen && <strong className="text-tide">집중 분석</strong>}</p>
+        <p className="text-ink-soft">{row.status === "available" ? <>영상 관련성 <span className="font-mono">{relevance?.toFixed(2) ?? "—"}</span></> : <span role="alert" className="text-amber">{row.status === "RECORDING_UNAVAILABLE" ? "녹화 없음" : "연결 불가"}{row.detail ? ` · ${row.detail}` : ""}</span>} · 순위 점수 <span className="font-mono">{row.rank_score?.toFixed(2) ?? "—"}</span> · <span className="font-mono">{frames || "—"}</span>프레임</p>
+        {(row.zone || evidence) && <p className="text-ink-soft">{row.zone}{evidence && <> · {evidence.findings.join(", ")}</>}</p>}
+      </div>
+    </li>;
+  })}<li className="ranking-note">순위 점수 = (0.20·근접 + 0.15·시간 일치 + 0.45·영상 관련성) ÷ 0.80. 관련성이 0인 카메라는 집중 분석하지 않습니다.</li></ol>;
 }
 
 export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview }: {
@@ -93,11 +66,14 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
   onChanged: () => void;
   onRadiusPreview?: (radius: number) => void;
 }) {
-  const analysis = detail.analysis;
-  const summary = analysis?.summary;
+  const storedAnalysis = detail.analysis;
   const running = live.job.state === "running" || (live.job.state === "queued" && !!live.job.params);
   const lastRun = detail.events.map((event) => event.type).lastIndexOf("analysis_requested");
-  const guidanceAnalysis = analysis && !running && (lastRun < 0 || analysis.started_at >= detail.events[lastRun].created_at) ? analysis : null;
+  const analysis = storedAnalysis && !running && live.job.state !== "queued" && (lastRun < 0 || Date.parse(storedAnalysis.started_at) >= Date.parse(detail.events[lastRun].created_at)) ? storedAnalysis : null;
+  const summary = analysis?.summary;
+  const [tab, setTab] = useState<"response" | "cctv" | "report" | "tools">("response");
+  const priority = analysis?.response_plan?.priority ?? live.priority;
+  const priorityLabel = priority === "urgent" ? "긴급" : priority === "high" ? "높음" : "보통";
   const outcome = live.job.state === "completed" || live.job.state === "failed" ? OUTCOME[live.job.stage] : null;
   const [params, setParams] = useState<AnalyzeParams>(detail.job.params ?? DEFAULTS);
   const [note, setNote] = useState("");
@@ -163,60 +139,36 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
   });
 
   return (
-    <div className="pb-10">
-      <div className="px-5 pb-4 pt-5">
-        <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] text-ink-soft">
-          <span>#{shortId(detail.report_id)}</span>
-          <span>{kst(detail.created_at)} 접수</span>
-          <span>{sourceLabel(detail.source)}</span>
+    <div className="report-panel">
+      <div className="report-head">
+        <div className="flex flex-wrap gap-x-2 font-mono text-[11px] text-ink-soft">
+          <span>#{shortId(detail.report_id)}</span><span>{kst(detail.created_at)} 접수</span><span>{sourceLabel(detail.source)}</span>
           <span>{detail.location_kind === "demo" ? "시연 지점" : "실제 위치"} · 반경 {detail.radius_m}m</span>
         </div>
-        <h2 className="mt-1 font-display text-2xl">
-          {INCIDENT[analysis?.classification?.incident_type ?? ""] ?? (running ? "분석 중" : "분류 전")}
-        </h2>
-        <p className="mt-2 text-sm">{detail.description}</p>
-        {detail.details && <p className="mt-1 text-xs text-ink-soft">상세 위치: {detail.details}</p>}
-        {detail.occurred_at && <p className="mt-1 text-xs text-ink-soft">신고된 발생 시각: {kst(detail.occurred_at)}</p>}
-        <div className="mt-3 rounded border border-rule px-3 py-2">
-          <div className="flex items-center justify-between text-xs">
-            <span className="font-medium">검색 반경</span>
-            <span className="font-mono text-ink-soft">현재 {detail.radius_m}m</span>
-          </div>
-          <input type="range" min={50} max={5000} step={50} value={Math.min(Math.max(radius, 50), 5000)}
-            onChange={(event) => changeRadius(Number(event.target.value))} aria-label="검색 반경" className="mt-1 w-full accent-violet-600" />
-          <div className="mt-1 flex items-center gap-2">
-            <input type="number" min={1} max={5000} value={Number.isFinite(radius) ? radius : ""}
-              onChange={(event) => changeRadius(event.target.valueAsNumber)}
-              className="w-24 rounded border border-rule bg-surface px-2 py-1 font-mono text-sm" />
-            <span className="text-xs text-ink-soft">m (1~5000) · 움직이면 바로 저장</span>
-          </div>
-          {radiusNote && <p role="status" className="mt-1 text-xs">{radiusNote}</p>}
+        <div className="report-title"><h2 className="font-display text-2xl">{INCIDENT[analysis?.classification?.incident_type ?? live.incident_type ?? ""] ?? (live.priority_basis === "keywords" && priority === "urgent" ? "쓰러짐 의심" : running ? "분석 중" : "분류 전")}</h2>
+          {priority && <span className={`guidance-priority guidance-${priority}`}>우선순위 {priorityLabel}</span>}
         </div>
-        <div className="mt-3"><StageTrack live={live} /></div>
-        {outcome && (
-          <p className={`mt-3 rounded px-3 py-2 text-sm font-bold ${outcome.tone === "alert" ? "bg-beacon-wash text-beacon" : outcome.tone === "warn" ? "bg-amber-wash text-amber" : "bg-chart text-ink-soft"}`}>
-            {outcome.label}
-            {live.job.error && <span className="block text-xs font-normal">{live.job.error}</span>}
-          </p>
-        )}
-        {analysis?.warnings?.length ? (
-          <ul className="mt-2 space-y-0.5 text-xs text-amber">{analysis.warnings.map((warning) => <li key={warning}>· {warning}</li>)}</ul>
-        ) : null}
       </div>
-
-      <ReportGuidance report={detail} analysis={guidanceAnalysis} events={detail.events} onLogged={onChanged} />
-
+      <ConsoleTabs label="신고 상세 탭" value={tab} onChange={setTab} items={[
+        { id: "response", label: "대응" }, { id: "cctv", label: "CCTV" }, { id: "report", label: "신고 내용" }, { id: "tools", label: "도구" },
+      ]}>
+        {live.job.error && <p role="alert" className="panel-alert">{outcome?.label ?? "분석 실패"} · {live.job.error}</p>}
+        {analysis?.warnings?.length ? <ul role="alert" className="panel-alert">{analysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
+        {analysis?.nearby && analysis.nearby.radius_m !== detail.radius_m && <p role="alert" className="panel-alert">분석 당시 반경 {analysis.nearby.radius_m}m · 현재 반경과 다릅니다. 현재 조건으로 다시 분석하세요.</p>}
+        {!analysis && !running && live.job.state !== "queued" && <p className="panel-alert">이번 분석에 사용할 수 있는 결과가 없습니다. 다시 분석하거나 원본을 직접 확인하세요.</p>}
+        <div hidden={tab !== "response"}>{running && <div className="panel-stages"><StageTrack live={live} /></div>}</div>
+        <div hidden={tab !== "cctv"}>
       {analysis && analysis.cameras.length > 0 && (
         <Section title="후보 카메라" aside={`${analysis.mode === "selective" ? "선택 분석" : analysis.mode === "all" ? "전체 분석" : "비교 실험"} · ${analysis.params.source === "live" ? "실시간" : "녹화"} ${analysis.params.duration}초`}>
-          <Ranking cameras={analysis.cameras} selected={analysis.selected_camera_ids} />
+          <Ranking cameras={analysis.cameras} selected={analysis.selected_camera_ids} reportId={detail.report_id} />
         </Section>
       )}
 
-      {evidence.length > 0 && (
+<details className="all-evidence"><summary>근거 프레임 전체 보기</summary>      {evidence.length > 0 && (
         <Section title="근거 프레임" aside="자동 탐지 후보 · 원본 아님">
           <div className="grid grid-cols-2 gap-2">
             {evidence.slice(0, 4).map((item) => (
-              <figure key={`${item.camera}-${item.file}`} className="overflow-hidden rounded border border-rule">
+              <figure key={`${item.camera}-${item.file}`} className="overflow-hidden border border-rule">
                 {/* eslint-disable-next-line @next/next/no-img-element -- authenticated proxy image, not optimizable */}
                 <img src={bPath(`/api/v1/admin/reports/${detail.report_id}/artifacts/${item.path}`)} alt={`${item.camera} 근거 프레임`} className="aspect-video w-full bg-chart object-cover" />
                 <figcaption className="px-2 py-1 text-[11px]">
@@ -232,28 +184,32 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         </Section>
       )}
 
-      {summary && (
-        <Section title="상황 요약" aside={sourceLabelAI(summary.source)}>
-          <dl className="space-y-2 text-sm">
-            <div><dt className="text-xs text-ink-soft">신고자 설명</dt><dd>{summary.reporter_claim}</dd></div>
-            <div>
-              <dt className="text-xs text-ink-soft">CCTV 관찰 (자동 탐지, 미확인)</dt>
-              {summary.cctv_observations.length ? (
-                <dd><ul className="space-y-0.5">{summary.cctv_observations.map((row, index) => (
-                  <li key={index}><span className="font-mono text-xs">{row.camera_id}</span> {row.finding} {row.timestamp && <span className="font-mono text-[11px] text-ink-soft">{kstTime(row.timestamp)}</span>}</li>
-                ))}</ul></dd>
-              ) : <dd className="text-ink-soft">관련 장면 후보 없음</dd>}
-            </div>
-            {summary.phone_observations.length > 0 && (
-              <div><dt className="text-xs text-ink-soft">신고자 자료</dt><dd><ul>{summary.phone_observations.map((row) => <li key={row}>{row}</li>)}</ul></dd></div>
-            )}
-            <div><dt className="text-xs text-ink-soft">확인되지 않은 사항</dt><dd><ul>{summary.unverified_facts.map((row) => <li key={row}>· {row}</li>)}</ul></dd></div>
-            <div><dt className="text-xs text-ink-soft">다음 조치 제안</dt><dd>{summary.recommended_next_step}</dd></div>
-          </dl>
-          <p className="mt-2 text-[11px] text-ink-soft">AI 결과는 사람이 원본을 확인하기 전까지 사실로 확정하지 않습니다. 긴급 상황은 기존 112·119 절차를 따릅니다.</p>
-        </Section>
-      )}
+</details>
+        </div>
+        <div hidden={tab !== "response" && tab !== "cctv"}>
+          <ReportGuidance report={{ ...live, radius_m: detail.radius_m }} analysis={analysis} events={detail.events} onLogged={onChanged} view={tab === "cctv" ? "cctv" : "response"} />
+        </div>
+        <div hidden={tab !== "response"}>
+      <Section title="담당자 처리" aside={detail.review?.closed_at ? `종결 ${kst(detail.review.closed_at)}` : detail.review?.confirmed_at ? `확인 ${kst(detail.review.confirmed_at)}` : undefined}>
+        <textarea rows={2} maxLength={2000} placeholder="확인 내용 메모 (예: 원본 확인, 현장 전달함)" value={note} onChange={(e) => setNote(e.target.value)}
+          className="w-full border border-rule bg-surface px-2.5 py-1.5 text-sm" />
+        <div className="mt-2 flex gap-2">
+          <button disabled={busy !== ""} onClick={() => act("confirm", () => api(`/api/v1/admin/reports/${detail.report_id}/confirm`, { method: "POST", json: { note } }), "확인 완료로 기록했습니다.")}
+            className="flex-1 bg-tide px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">확인 완료</button>
+          <button disabled={busy !== ""} onClick={() => act("close", () => api(`/api/v1/admin/reports/${detail.report_id}/close`, { method: "POST", json: { note } }), "종결로 기록했습니다.")}
+            className="flex-1 border border-ink px-3 py-1.5 text-sm disabled:opacity-40">종결</button>
+        </div>
+      </Section>
 
+
+        </div>
+        <div hidden={tab !== "report"}>
+          <Section title="신고 내용">
+            <p className="text-sm">{detail.description || "위치만 보낸 신고"}</p>
+            {detail.details && <p className="mt-2 text-xs text-ink-soft">상세 위치: {detail.details}</p>}
+            {detail.occurred_at && <p className="mt-1 text-xs text-ink-soft">신고된 발생 시각: {kst(detail.occurred_at)}</p>}
+            <p className="mt-1 font-mono text-xs text-ink-soft">위도 {detail.latitude.toFixed(5)} · 경도 {detail.longitude.toFixed(5)}</p>
+          </Section>
       {detail.attachments.length > 0 && (
         <Section title="신고자 첨부" aside="본인이 선택해 올린 자료">
           <ul className="space-y-1 text-sm">
@@ -274,6 +230,72 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         </Section>
       )}
 
+      {summary && (
+        <Section title="상황 요약" aside={sourceLabelAI(summary.source)}>
+          <dl className="space-y-2 text-sm">
+            <div><dt className="text-xs text-ink-soft">신고자 설명</dt><dd>{summary.reporter_claim}</dd></div>
+            <div>
+              <dt className="text-xs text-ink-soft">CCTV 관찰 (자동 탐지, 미확인)</dt>
+              {summary.cctv_observations.length ? (
+                <dd><ul className="space-y-0.5">{summary.cctv_observations.map((row, index) => (
+                  <li key={index}><span className="font-mono text-xs">{row.camera_id}</span> {row.finding} {row.timestamp && <span className="font-mono text-[11px] text-ink-soft">{kstTime(row.timestamp)}</span>}</li>
+                ))}</ul></dd>
+              ) : <dd className="text-ink-soft">관련 장면 후보 없음</dd>}
+            </div>
+            {summary.phone_observations.length > 0 && (
+              <div><dt className="text-xs text-ink-soft">신고자 자료</dt><dd><ul>{summary.phone_observations.map((row) => <li key={row}>{row}</li>)}</ul></dd></div>
+            )}
+            <div><dt className="text-xs text-ink-soft">확인되지 않은 사항</dt><dd><ul>{summary.unverified_facts.map((row) => <li key={row}>· {row}</li>)}</ul></dd></div>
+          </dl>
+        </Section>
+      )}
+
+
+        </div>
+        <div hidden={tab !== "tools"}>
+<Section title="검색 반경">        <div className="mt-3 border border-rule px-3 py-2">
+          <div className="flex items-center justify-between text-xs">
+            <span className="font-medium">검색 반경</span>
+            <span className="font-mono text-ink-soft">현재 {detail.radius_m}m</span>
+          </div>
+          <input type="range" min={50} max={5000} step={50} value={Math.min(Math.max(radius, 50), 5000)}
+            onChange={(event) => changeRadius(Number(event.target.value))} aria-label="검색 반경" className="mt-1 w-full accent-beacon" />
+          <div className="mt-1 flex items-center gap-2">
+            <input aria-label="검색 반경 미터" type="number" min={1} max={5000} value={Number.isFinite(radius) ? radius : ""}
+              onChange={(event) => changeRadius(event.target.valueAsNumber)}
+              className="w-24 border border-rule bg-surface px-2 py-1 font-mono text-sm" />
+            <span className="text-xs text-ink-soft">m (1~5000) · 움직이면 바로 저장</span>
+          </div>
+          {radiusNote && <p role="status" className="mt-1 text-xs">{radiusNote}</p>}
+        </div>
+</Section>      <Section title="분석 실행">
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <label className="space-y-0.5"><span className="text-ink-soft">방식</span>
+            <select className="w-full border border-rule bg-surface px-2 py-1" value={params.mode} onChange={(e) => setParams({ ...params, mode: e.target.value as AnalyzeParams["mode"] })}>
+              <option value="selective">신고 기반 선택 분석</option><option value="all">전체 카메라 집중 분석</option><option value="benchmark">두 방식 비교 실험</option>
+            </select>
+          </label>
+          <label className="space-y-0.5"><span className="text-ink-soft">영상</span>
+            <select className="w-full border border-rule bg-surface px-2 py-1" value={params.source} onChange={(e) => setParams({ ...params, source: e.target.value as AnalyzeParams["source"] })}>
+              <option value="live">실시간 스트림</option><option value="recording">신고 시각 녹화</option>
+            </select>
+          </label>
+          <label className="space-y-0.5"><span className="text-ink-soft">길이 (초)</span>
+            <input type="number" min={2} max={60} className="w-full border border-rule bg-surface px-2 py-1" value={params.duration} onChange={(e) => setParams({ ...params, duration: Number(e.target.value) })} />
+          </label>
+          <label className="space-y-0.5"><span className="text-ink-soft">탐색 / 집중 FPS</span>
+            <span className="flex gap-1">
+              <input aria-label="탐색 FPS" type="number" min={0.2} max={5} step={0.1} className="w-full border border-rule bg-surface px-2 py-1" value={params.sample_fps} onChange={(e) => setParams({ ...params, sample_fps: Number(e.target.value) })} />
+              <input aria-label="집중 FPS" type="number" min={0.5} max={10} step={0.5} className="w-full border border-rule bg-surface px-2 py-1" value={params.focus_fps} onChange={(e) => setParams({ ...params, focus_fps: Number(e.target.value) })} />
+            </span>
+          </label>
+        </div>
+        <button disabled={running || busy !== ""} onClick={() => act("analyze", () => api(`/api/v1/admin/reports/${detail.report_id}/analyze`, { method: "POST", json: params }), "분석을 대기열에 넣었습니다.")}
+          className="mt-3 w-full bg-ink px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
+          {running ? "분석 진행 중…" : analysis ? "다시 분석" : "분석 시작"}
+        </button>
+      </Section>
+
       {analysis?.benchmark && (
         <Section title="선택 분석 vs 전체 분석" aside="같은 클립 기준">
           <table className="w-full text-xs">
@@ -291,39 +313,11 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         </Section>
       )}
 
-      <Section title="분석 실행">
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <label className="space-y-0.5"><span className="text-ink-soft">방식</span>
-            <select className="w-full rounded border border-rule bg-surface px-2 py-1" value={params.mode} onChange={(e) => setParams({ ...params, mode: e.target.value as AnalyzeParams["mode"] })}>
-              <option value="selective">신고 기반 선택 분석</option><option value="all">전체 카메라 집중 분석</option><option value="benchmark">두 방식 비교 실험</option>
-            </select>
-          </label>
-          <label className="space-y-0.5"><span className="text-ink-soft">영상</span>
-            <select className="w-full rounded border border-rule bg-surface px-2 py-1" value={params.source} onChange={(e) => setParams({ ...params, source: e.target.value as AnalyzeParams["source"] })}>
-              <option value="live">실시간 스트림</option><option value="recording">신고 시각 녹화</option>
-            </select>
-          </label>
-          <label className="space-y-0.5"><span className="text-ink-soft">길이 (초)</span>
-            <input type="number" min={2} max={60} className="w-full rounded border border-rule bg-surface px-2 py-1" value={params.duration} onChange={(e) => setParams({ ...params, duration: Number(e.target.value) })} />
-          </label>
-          <label className="space-y-0.5"><span className="text-ink-soft">탐색 / 집중 FPS</span>
-            <span className="flex gap-1">
-              <input type="number" min={0.2} max={5} step={0.1} className="w-full rounded border border-rule bg-surface px-2 py-1" value={params.sample_fps} onChange={(e) => setParams({ ...params, sample_fps: Number(e.target.value) })} />
-              <input type="number" min={0.5} max={10} step={0.5} className="w-full rounded border border-rule bg-surface px-2 py-1" value={params.focus_fps} onChange={(e) => setParams({ ...params, focus_fps: Number(e.target.value) })} />
-            </span>
-          </label>
-        </div>
-        <button disabled={running || busy !== ""} onClick={() => act("analyze", () => api(`/api/v1/admin/reports/${detail.report_id}/analyze`, { method: "POST", json: params }), "분석을 대기열에 넣었습니다.")}
-          className="mt-3 w-full rounded bg-ink px-3 py-2 text-sm font-medium text-white disabled:opacity-40">
-          {running ? "분석 진행 중…" : analysis ? "다시 분석" : "분석 시작"}
-        </button>
-      </Section>
-
       <Section title="사건 영상 보존" aside="A 원본 녹화의 remux 사본 · SHA256 기록">
         {preservable.length ? preservable.map((row) => (
           <button key={row.camera_id} disabled={busy !== ""}
             onClick={() => act("preserve", () => api(`/api/v1/admin/reports/${detail.report_id}/preserve`, { method: "POST", json: { camera_id: row.camera_id, start: row.window!.start, duration: row.window!.duration } }), "보존했습니다.")}
-            className="mb-2 w-full rounded border border-ink px-3 py-1.5 text-sm disabled:opacity-40">
+            className="mb-2 w-full border border-ink px-3 py-1.5 text-sm disabled:opacity-40">
             {row.camera_id} {kstTime(row.window!.start)}부터 {row.window!.duration}초 보존
           </button>
         )) : <p className="text-xs text-ink-soft">집중 분석된 카메라의 영상 구간이 생기면 보존할 수 있습니다. 실시간 분석 구간은 녹화가 확정되는 약 1분 뒤부터 보존됩니다.</p>}
@@ -340,21 +334,9 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         )}
       </Section>
 
-      <Section title="담당자 처리" aside={detail.review?.closed_at ? `종결 ${kst(detail.review.closed_at)}` : detail.review?.confirmed_at ? `확인 ${kst(detail.review.confirmed_at)}` : undefined}>
-        <textarea rows={2} maxLength={2000} placeholder="확인 내용 메모 (예: 원본 확인, 현장 전달함)" value={note} onChange={(e) => setNote(e.target.value)}
-          className="w-full rounded border border-rule bg-surface px-2.5 py-1.5 text-sm" />
-        <div className="mt-2 flex gap-2">
-          <button disabled={busy !== ""} onClick={() => act("confirm", () => api(`/api/v1/admin/reports/${detail.report_id}/confirm`, { method: "POST", json: { note } }), "확인 완료로 기록했습니다.")}
-            className="flex-1 rounded bg-tide px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40">확인 완료</button>
-          <button disabled={busy !== ""} onClick={() => act("close", () => api(`/api/v1/admin/reports/${detail.report_id}/close`, { method: "POST", json: { note } }), "종결로 기록했습니다.")}
-            className="flex-1 rounded border border-ink px-3 py-1.5 text-sm disabled:opacity-40">종결</button>
-        </div>
-        {message && <p role="status" className="mt-2 text-xs">{message}</p>}
-      </Section>
-
       <Section title="외부 제출" aside="다운로드는 감사 기록에 남습니다">
         <a href={bPath(`/api/v1/admin/reports/${detail.report_id}/package.zip${media ? "" : "?media=false"}`)} download
-          className="block w-full rounded bg-ink px-3 py-1.5 text-center text-sm font-medium text-white hover:brightness-110">
+          className="block w-full bg-ink px-3 py-1.5 text-center text-sm font-medium text-white hover:brightness-110">
           증거 묶음 다운로드 (ZIP)
         </a>
         <label className="mt-2 flex items-center gap-1.5 text-xs text-ink-soft">
@@ -364,13 +346,23 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         <p className="mt-1 text-xs text-ink-soft">신고·분석·처리 기록, 감사 기록, 파일별 SHA256 목록(manifest.json)이 함께 들어갑니다.</p>
       </Section>
 
-      <Section title="처리 기록">
+<details className="all-events"><summary>처리 기록 전체</summary>      <Section title="처리 기록">
         <ol className="space-y-0.5 font-mono text-[11px] text-ink-soft">
           {detail.events.map((event, index) => (
             <li key={index}><span className="tabular">{kstTime(event.created_at)}</span> {event.message}</li>
           ))}
         </ol>
       </Section>
+</details>
+        </div>
+        {message && <p role="status" className="panel-message">{message}</p>}
+      </ConsoleTabs>
+      <details className="panel-info"><summary>ⓘ AI 결과는 확인 전 미확정 · 공공 CCTV는 위치정보만 사용</summary>
+        <p>공공 CCTV 영상은 열람·분석하지 않습니다. 추천은 참고용이며 출동·조치 결정은 담당자가 합니다.</p>
+        <p>긴급 상황은 분석을 기다리지 말고 기존 112·119 절차를 따르세요.</p>
+        {analysis?.response_plan?.source && <p>대응 방안 출처: {analysis.response_plan.source === "local_rules" ? "사건 유형·분석 결과 기반 규칙 추천" : analysis.response_plan.source}</p>}
+        {analysis?.response_plan?.cautions.map((caution, index) => <p key={index}>{caution}</p>)}
+      </details>
     </div>
   );
 }
