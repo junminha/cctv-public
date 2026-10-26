@@ -1,127 +1,16 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, bPath, type Analysis, type ReportDetail, type ReportSummary, type VisionResult } from "@/lib/api";
-import { INCIDENT, OUTCOME, STAGES, jobLabel, kstTime, shortId, sourceLabelAI } from "@/lib/labels";
+import { INCIDENT, OUTCOME, jobLabel, kstTime, shortId, sourceLabelAI } from "@/lib/labels";
 import { useLive } from "@/lib/live";
 import { byUrgency } from "@/lib/urgent";
 import { ReportGuidance } from "./report-guidance";
 import { UrgentBanner } from "./urgent-banner";
-
-const STAGE_TAG: Record<string, string> = {
-  RECEIVED: "RECEIVED",
-  CLASSIFIED: "CLASSIFY",
-  CANDIDATES_FOUND: "CANDIDATES",
-  SCANNING: "SCAN",
-  FOCUSED_ANALYSIS: "FOCUS",
-  SUMMARIZING: "SUMMARY",
-};
-const TAG_COLOR: Record<string, string> = {
-  RECEIVED: "var(--w-text)",
-  QUEUE: "var(--w-soft)",
-  ATTACH: "var(--w-tide)",
-  CLASSIFY: "var(--w-tide)",
-  CANDIDATES: "var(--w-tide)",
-  SCAN: "var(--w-tide)",
-  FOCUS: "var(--w-beacon)",
-  SUMMARY: "var(--w-beacon)",
-  VOICE: "var(--w-tide)",
-  PHONE: "var(--w-tide)",
-  DONE: "var(--w-beacon)",
-  RERUN: "var(--w-amber)",
-  EXPAND: "var(--w-amber)",
-  WARN: "var(--w-amber)",
-  REVIEW: "var(--w-text)",
-  LOG: "var(--w-tide)",
-};
-
-type LogLine = { at: string; offset: number | null; tag: string; text: string };
-
-function stageIndex(report: ReportSummary | null) {
-  if (!report) return -1;
-  if (report.job.state === "completed" || report.job.state === "failed") return STAGES.length;
-  if (report.job.state === "running") return Math.max(0, STAGES.findIndex((s) => s.key === report.job.stage));
-  return 0;
-}
-
-const pct = (value: number | undefined) => (value === undefined ? "—" : `${Math.round(value * 100)}%`);
-
-// One line per thing the pipeline did, built from the report's event log and its stored analysis.
-function buildLog(detail: ReportDetail): LogLine[] {
-  const analysis: Analysis | null = detail.analysis;
-  const lines: LogLine[] = [];
-  let start: number | null = null;
-  const add = (at: string, tag: string, text: string) =>
-    lines.push({ at, offset: start === null ? null : (new Date(at).getTime() - start) / 1000, tag, text });
-  // The stored analysis belongs to the latest run only; earlier runs (e.g. re-runs after an
-  // attachment) keep their step names and outcome without borrowing the newest details.
-  const lastRun = detail.events.map((e) => e.type).lastIndexOf("analysis_requested");
-  // While a re-run is still going, the stored analysis is the previous run's.
-  const fresh = analysis && (lastRun < 0 || analysis.started_at >= detail.events[lastRun].created_at) ? analysis : null;
-  detail.events.forEach((event, i) => {
-    const latest = i >= lastRun;
-    if (event.type === "received") {
-      add(event.created_at, "RECEIVED", `${detail.source === "demo" ? "모의 신고" : "시민 신고"} · 반경 ${Math.round(detail.radius_m)}m${detail.description ? "" : " · 내용 없음"}`);
-    } else if (event.type === "attachment") {
-      const kind = String(event.data.kind ?? "");
-      add(event.created_at, "ATTACH", `${kind === "image" ? "사진" : kind === "audio" ? "녹음" : kind === "video" ? "영상" : kind} 수신`);
-    } else if (event.type === "analysis_requested") {
-      start = new Date(event.created_at).getTime();
-      const p = event.data as Record<string, unknown>;
-      add(event.created_at, "QUEUE", `분석 요청 · ${p.mode ?? "selective"} · ${p.source === "recording" ? "녹화" : "실시간"} ${p.duration ?? 10}초`);
-    } else if (event.type === "analysis_rerun") {
-      add(event.created_at, "RERUN", "첨부 반영 재분석");
-    } else if (event.type === "radius_expanded") {
-      add(event.created_at, "EXPAND", event.message);
-    } else if (event.type === "stage") {
-      const tag = STAGE_TAG[event.message] ?? event.message;
-      add(event.created_at, tag, stageText(event.message, latest ? fresh : null));
-    } else if (event.type === "analysis_finished") {
-      const outcome = OUTCOME[event.message]?.label ?? event.message;
-      if (!latest) {
-        add(event.created_at, "DONE", outcome);
-        return;
-      }
-      const latency = fresh?.latency_seconds !== undefined ? ` · ${fresh.latency_seconds.toFixed(1)}초` : "";
-      for (const phone of fresh?.phone ?? []) {
-        if (phone.transcript) add(event.created_at, "VOICE", `“${phone.transcript}”`);
-        else if (phone.analysis) add(event.created_at, "PHONE", `${phone.kind === "video" ? "영상" : "사진"} · ${phone.analysis.observations.map((o) => o.finding).join(", ") || "관찰 없음"}`);
-      }
-      for (const warning of fresh?.warnings ?? []) add(event.created_at, "WARN", warning);
-      add(event.created_at, "DONE", `${outcome}${latency}`);
-    } else if (event.type === "response_log") {
-      add(event.created_at, "LOG", `${event.message}${event.data.text ? ` · ${String(event.data.text)}` : ""}`);
-    } else if (event.type === "confirmed" || event.type === "closed") {
-      add(event.created_at, "REVIEW", event.type === "confirmed" ? "담당자 확인" : "사건 종결");
-    }
-  });
-  return lines;
-}
-
-function stageText(stage: string, analysis: Analysis | null) {
-  if (!analysis) return jobLabel({ state: "running", stage });
-  const cams = analysis.cameras;
-  switch (stage) {
-    case "CLASSIFIED": {
-      const c = analysis.classification;
-      return c ? `${INCIDENT[c.incident_type] ?? c.incident_type} · ${sourceLabelAI(c.source)}${c.keywords.length ? ` · ${c.keywords.slice(0, 4).join(", ")}` : ""}` : "분류";
-    }
-    case "CANDIDATES_FOUND":
-      return analysis.candidates?.length ? analysis.candidates.map((c) => `${c.camera_id} ${Math.round(c.distance_m)}m`).join(" · ") : "반경 안 카메라 없음";
-    case "SCANNING":
-      return cams.filter((c) => c.scan).map((c) => `${c.camera_id} ${c.scan!.processed_frames}f 관련 ${pct(c.event_score)}`).join(" · ") || "탐색할 영상 없음";
-    case "FOCUSED_ANALYSIS": {
-      const focus = cams.filter((c) => c.focus);
-      return focus.length
-        ? focus.map((c) => `${c.camera_id} ${c.focus!.processed_frames}f → ${c.focus!.observations.map((o) => o.finding).join(", ") || "관찰 없음"}`).join(" · ")
-        : "관련 장면이 보인 카메라 없음";
-    }
-    case "SUMMARIZING":
-      return `보고서 · ${sourceLabelAI(analysis.summary?.source)}`;
-    default:
-      return stage;
-  }
-}
+import { ConsoleTabs } from "./console-tabs";
+import { buildLog, currentAnalysis, pct } from "@/lib/live-log";
+import { LiveTimeline } from "./live-timeline";
+import { LiveEvidence } from "./live-evidence";
 
 const MODE_LABEL: Record<string, string> = { selective: "선택 분석", all: "전체 분석", benchmark: "선택·전체 비교" };
 const KIND: Record<string, { code: string; label: string }> = {
@@ -153,18 +42,6 @@ function Item({ code, tone, children }: { code: string; tone?: string; children:
   );
 }
 
-function Evidence({ src, caption }: { src: string; caption: string }) {
-  const [broken, setBroken] = useState(false);
-  if (broken) return null;
-  return (
-    <figure className="evidence">
-      {/* eslint-disable-next-line @next/next/no-img-element -- authenticated proxy image */}
-      <img src={src} alt={`AI 근거 프레임: ${caption}`} onError={() => setBroken(true)} />
-      <figcaption className="truncate">{caption}</figcaption>
-    </figure>
-  );
-}
-
 const CAMERA_STATE: Record<string, { label: string; tone: string }> = {
   focus: { label: "집중 분석", tone: "var(--w-beacon)" },
   skip: { label: "건너뜀", tone: "var(--w-amber)" },
@@ -173,10 +50,9 @@ const CAMERA_STATE: Record<string, { label: string; tone: string }> = {
 };
 
 // What the analysis looked at and which engine handled each part, for the report on screen.
-function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: ReportDetail | null }) {
-  const analysis = detail?.analysis ?? null;
-  const lastRun = detail ? detail.events.map((e) => e.type).lastIndexOf("analysis_requested") : -1;
-  const fresh = detail && analysis && (lastRun < 0 || analysis.started_at >= detail.events[lastRun].created_at) ? analysis : null;
+function AnalysisRecord({ report, detail, fresh }: { report: ReportSummary; detail: ReportDetail | null; fresh: Analysis | null }) {
+  const [chosenTab, setChosenTab] = useState<"response" | "cctv" | "materials" | null>(null);
+  const tab = chosenTab ?? (report.job.state === "running" ? "materials" : "response");
   const params = fresh?.params ?? report.job.params ?? null;
   const pending = report.job.state === "queued" || report.job.state === "running";
   const vision = fresh?.cameras.flatMap((c) => [c.scan, c.focus, c.all]).concat(fresh.phone.map((p) => p.analysis)).filter((v): v is VisionResult => Boolean(v)) ?? [];
@@ -187,7 +63,11 @@ function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: Rep
   const text = detail?.description ?? report.description;
 
   return (
-    <div className="sheet min-h-0 flex-1 overflow-y-auto">
+    <div className="wall-record" data-wall-tab={tab}>
+      <ConsoleTabs label="분석 기록 탭" value={tab} onChange={setChosenTab} items={[
+        { id: "response", label: "대응" }, { id: "cctv", label: "CCTV" }, { id: "materials", label: "분석 자료·모델" },
+      ]}>
+      <div className="sheet">
       <section>
         <h3 className="sheet-title">방식</h3>
         {params ? (
@@ -224,9 +104,9 @@ function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: Rep
         )}
       </section>
 
-      <ReportGuidance key={report.report_id} report={report} analysis={pending ? null : fresh} compact />
+      <div hidden={tab === "materials"}><ReportGuidance key={report.report_id} report={report} analysis={fresh} compact events={detail?.events} readOnly /></div>
 
-      <section>
+      <section hidden={tab !== "materials"}>
         <h3 className="sheet-title">사용한 모델</h3>
         {fresh ? (
           <>
@@ -257,7 +137,7 @@ function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: Rep
         )}
       </section>
 
-      <section>
+      <section hidden={tab !== "materials"}>
         <h3 className="sheet-title">분석 자료</h3>
         <ul>
           <Item code="TEXT" tone="var(--w-text)">
@@ -306,7 +186,7 @@ function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: Rep
                     )}
                     {row.focus && <span className="clamp2">{findings(row.focus)}</span>}
                     {evidence?.path && (
-                      <Evidence src={bPath(`/api/v1/admin/reports/${report.report_id}/artifacts/${evidence.path}`)} caption={evidence.findings[0] ?? "관련 장면 후보"} />
+                      <LiveEvidence key={`${fresh.started_at}:${row.camera_id}:${evidence.path}`} src={bPath(`/api/v1/admin/reports/${report.report_id}/artifacts/${evidence.path}?run=${encodeURIComponent(fresh.started_at)}`)} caption={evidence.findings[0] ?? "관련 장면 후보"} />
                     )}
                   </Item>
                 );
@@ -318,11 +198,13 @@ function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: Rep
               )}
           {fresh && fresh.cameras.length === 0 && (
             <Item code="CAM">
-              <span className="soft">반경 안 웹캠 없음</span>
+              <span className="soft">{fresh.outcome === "NO_CAMERA_IN_RANGE" || fresh.candidates?.length === 0 ? "반경 안 웹캠 없음" : "웹캠 후보를 확인하지 못했습니다."}</span>
             </Item>
           )}
         </ul>
       </section>
+      </div>
+      </ConsoleTabs>
     </div>
   );
 }
@@ -330,16 +212,17 @@ function AnalysisRecord({ report, detail }: { report: ReportSummary; detail: Rep
 function ReportItem({ report, selected, onSelect }: { report: ReportSummary; selected: boolean; onSelect: () => void }) {
   const running = report.job.state === "running";
   const done = report.job.state === "completed" || report.job.state === "failed";
-  const tone = done ? (OUTCOME[report.job.stage]?.tone === "alert" ? "var(--w-beacon)" : OUTCOME[report.job.stage]?.tone === "warn" ? "var(--w-amber)" : "var(--w-soft)") : running ? "var(--w-beacon)" : "var(--w-soft)";
+  const tone = report.priority === "urgent" && !report.alert_acknowledged ? "var(--signal)" : running ? "var(--w-beacon)" : done && report.job.state !== "failed" ? "var(--w-tide)" : "var(--w-soft)";
   return (
-    <button type="button" className="report-item min-w-0" aria-current={selected} onClick={onSelect}>
-      <span className="mono soft flex items-center gap-[0.6em] text-[0.82em]">
+    <button type="button" className="report-item min-w-0" style={{ borderLeftColor: tone }} aria-current={selected} onClick={onSelect}>
+      <span className="soft flex items-center gap-[0.6em] text-[0.82em]">
         {running && <span className="live-mark" />}
         {report.priority === "urgent" && !report.review?.closed_at && <span className={`urgent-tag ${report.alert_acknowledged ? "seen" : ""}`}>긴급</span>}
-        <span>{kstTime(report.created_at)}</span>
-        <span>#{shortId(report.report_id)}</span>
+        <span className="mono">{kstTime(report.created_at)}</span>
+        <span className="mono">#{shortId(report.report_id)}</span>
       </span>
-      <span className={`truncate ${report.description ? "" : "soft"}`}>{report.description || "위치만 보낸 신고"}</span>
+      <strong className="report-incident">{INCIDENT[report.incident_type ?? ""] ?? (report.priority === "urgent" ? "쓰러짐 의심" : "분류 전")}</strong>
+      <span title={report.description} className={`truncate ${report.description ? "" : "soft"}`}>{report.description || "위치만 보낸 신고"}</span>
       <span className="truncate text-[0.85em]" style={{ color: tone }}>
         {jobLabel(report.job)}
         {running && ` · ${Math.round(report.job.progress * 100)}%`}
@@ -348,143 +231,95 @@ function ReportItem({ report, selected, onSelect }: { report: ReportSummary; sel
   );
 }
 
+function Situation({ report, detail, analysis, elapsed }: { report: ReportSummary; detail: ReportDetail | null; analysis: Analysis | null; elapsed: number | null }) {
+  const running = report.job.state === "running";
+  const pending = running || report.job.state === "queued";
+  const priority = analysis?.response_plan?.priority ?? report.priority;
+  const plan = analysis?.response_plan;
+  const finishedAt = analysis?.finished_at;
+  const next = plan?.steps.findIndex((_, i) => !(detail?.events ?? []).some(e => e.type === "response_log"
+    && e.data.kind === "step" && e.data.step === i && finishedAt && Date.parse(e.created_at) >= Date.parse(finishedAt))) ?? -1;
+  const best = analysis?.best_camera?.video;
+  const incident = INCIDENT[analysis?.classification?.incident_type ?? report.incident_type ?? ""]
+    ?? (priority === "urgent" && report.priority_basis === "keywords" ? "쓰러짐 의심" : "분류 전");
+  return <section role="region" aria-label="상황 카드" className="panel wall-situation">
+    <div className="wall-state-row">
+      <strong className="wall-incident">{incident}</strong>
+      {priority && <span className={`guidance-priority guidance-${priority}`}>우선순위 {priority === "urgent" ? "긴급" : priority === "high" ? "높음" : "보통"}</span>}
+      <strong className={`wall-outcome ${pending ? "progress" : report.job.state === "failed" ? "failure" : analysis?.outcome === "REVIEW_REQUIRED" ? "complete" : "soft"}`}>
+        {pending ? `${jobLabel(report.job)}${running ? " · 진행 중" : ""}` : OUTCOME[report.job.stage]?.label ?? "분석 기록 확인 중"}
+      </strong>
+    </div>
+    <div className="situation-description"><h2 className="display" title={report.description}>{report.description || "위치만 보낸 신고"}</h2>
+      <span className="soft"><span className="mono">#{shortId(report.report_id)}</span> · {kstTime(report.created_at)} · {report.source === "demo" ? "모의 신고" : "시민 신고"} · {report.location_kind === "demo" ? "시연 지점" : "실제 위치"} · 반경 {Math.round(report.radius_m)}m{elapsed !== null && ` · 마지막 로그 후 ${elapsed.toFixed(0)}초`}</span>
+    </div>
+    <p className="situation-camera"><span className="soft">가장 적합한 CCTV</span> <strong>{best ? `${best.camera_id} · ${best.distance_m === null ? "거리 미등록" : `${Math.round(best.distance_m)}m`}` : pending ? "분석 완료 후 선정 결과 표시" : "영상 분석에서 선정된 웹캠이 없습니다."}</strong></p>
+    <p className="next-action"><strong>다음 할 일</strong> {plan ? next >= 0 ? `${next + 1}단계 · ${plan.steps[next].action}` : "모든 대응 단계를 기록했습니다." : "긴급 상황은 112·119 절차 우선"}</p>
+  </section>;
+}
+
 export function LiveWall() {
   const { snapshot, connection } = useLive();
-  const [details, setDetails] = useState<Record<string, ReportDetail>>({});
+  const [detailResult, setDetailResult] = useState<{ key: string; data: ReportDetail | null }>({ key: "", data: null });
   const [pinned, setPinned] = useState<string | null>(null);
   const [now, setNow] = useState<number | null>(null);
-  const logEnd = useRef<HTMLDivElement>(null);
-
   const reports = useMemo(() => byUrgency([...(snapshot?.reports ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))), [snapshot]);
-  // Follow the report being analysed unless one was clicked.
-  const auto = reports.find((r) => r.job.state === "running") ?? reports.find((r) => r.job.state === "queued" && r.job.params) ?? reports[0] ?? null;
-  const focus = (pinned && reports.find((r) => r.report_id === pinned)) || auto;
-  const index = stageIndex(focus);
-  const running = focus?.job.state === "running";
-  const failed = focus?.job.state === "failed";
-  const focusKey = focus ? `${focus.report_id}:${focus.radius_m}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}:${focus.response_logs ?? 0}:${focus.review?.confirmed_at}` : "";
-
+  const auto = reports.find(r => r.job.state === "running") ?? reports.find(r => r.job.state === "queued" && r.job.params) ?? reports[0] ?? null;
+  const focus = (pinned && reports.find(r => r.report_id === pinned)) || auto;
+  const focusKey = focus ? `${focus.report_id}:${focus.radius_m}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}:${focus.response_logs ?? 0}:${focus.review?.confirmed_at}:${focus.review?.closed_at}:${focus.job.error}` : "";
+  // A rerun can return to the same completed key. Discard the old detail on every transition.
+  if (detailResult.key !== focusKey) setDetailResult({ key: focusKey, data: null });
   useEffect(() => {
-    const tick = () => setNow(Date.now());
-    const first = setTimeout(tick, 0);
-    const timer = setInterval(tick, 1000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(timer);
-    };
+    const first = setTimeout(() => setNow(Date.now()), 0);
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => { clearTimeout(first); clearInterval(timer); };
   }, []);
-
   useEffect(() => {
     if (!focus) return;
     let alive = true;
     api<ReportDetail>(`/api/v1/admin/reports/${focus.report_id}`)
-      .then((value) => alive && setDetails((current) => ({ ...current, [value.report_id]: value })))
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-    // focusKey captures every change that matters for the detail.
+      .then(value => { if (alive) setDetailResult({ key: focusKey, data: value }); }).catch(() => {});
+    return () => { alive = false; };
+    // focusKey includes all snapshot fields that refresh this report detail.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusKey]);
-
-  const detail = focus ? details[focus.report_id] ?? null : null;
-  const log = useMemo(() => (detail ? buildLog(detail) : []), [detail]);
-  const lastAt = log.length ? new Date(log[log.length - 1].at).getTime() : null;
-  const elapsed = running && now && lastAt ? Math.max(0, (now - lastAt) / 1000) : null;
+  const detail = detailResult.key === focusKey ? detailResult.data : null;
+  const analysis = focus ? currentAnalysis(focus, detail) : null;
+  const log = useMemo(() => detail ? buildLog(detail) : [], [detail]);
+  const lastAt = log.length ? Date.parse(log[log.length - 1].at) : null;
+  const elapsed = focus?.job.state === "running" && now && lastAt ? Math.max(0, (now - lastAt) / 1000) : null;
   const clock = now ? kstTime(new Date(now).toISOString()) : "";
-
-  useEffect(() => {
-    logEnd.current?.scrollIntoView({ block: "end" });
-  }, [log.length, focus?.report_id]);
-
-  return (
-    <main className="wall fixed inset-0 flex flex-col gap-[0.9em] overflow-hidden p-[1.2em]">
-      <header className="masthead flex items-end justify-between gap-[2em] pb-[0.5em]">
-        <h1 className="display text-[1.7em] leading-none">AI 분석 로그</h1>
-        <div className="num flex items-center gap-[0.7em]" aria-live="polite">
-          <span className="state-mark" style={{ background: connection === "live" ? "var(--w-tide)" : "var(--w-amber)" }} />
-          <span>{connection === "live" ? "LIVE" : connection === "offline" ? "다시 연결하는 중" : "연결 중"}</span>
-          <span className="soft">{clock}</span>
+  return <main className="wall fixed inset-0">
+    <header className="masthead">
+      <h1 className="display">AI 분석 로그</h1>
+      <div className="wall-connection" aria-live="polite">
+        <span className="state-mark" style={{ background: connection === "live" ? "var(--w-tide)" : "var(--w-amber)" }} />
+        <span>{connection === "live" ? "LIVE" : connection === "offline" ? "다시 연결하는 중" : "연결 중"}</span>
+        <span className="soft mono">{clock}</span>
+      </div>
+    </header>
+    {connection !== "live" && <p role="status" className="wall-connection-note">{connection === "offline" ? "연결이 끊겼습니다. 새 신고·분석 결과가 지연될 수 있습니다. 연결 복구 후 최신 상태를 확인하세요." : "연결 중입니다. 최신 신고·분석 상태를 기다리고 있습니다."}</p>}
+    <UrgentBanner reports={reports} onShow={setPinned} />
+    <section className="wall-workspace">
+      <aside className="panel wall-queue" aria-label="신고 목록">
+        <div className="panel-head"><h2>신고</h2><button type="button" onClick={() => setPinned(null)} className="toggle" aria-pressed={!pinned}>자동</button></div>
+        <div className="queue-scroll">
+          {reports.slice(0, 30).map(report => <ReportItem key={report.report_id} report={report} selected={report.report_id === focus?.report_id} onSelect={() => setPinned(report.report_id)} />)}
+          {reports.length === 0 && <p className="wall-empty">{connection === "live" ? "신고 없음" : "표시할 신고 없음 · 연결 상태 확인 필요"}</p>}
+          {reports.length > 0 && <p className="queue-note soft">긴급 신고 우선 · 최근 30건<br />{pinned ? "신고 고정 중 · 자동으로 복귀 가능" : "자동 · 분석 중인 신고를 따라갑니다."}</p>}
         </div>
-      </header>
-      <UrgentBanner reports={reports} onShow={setPinned} />
-
-      {/* minmax(0, …): long report text must truncate, never widen a column. */}
-      <section className="grid min-h-0 flex-1 grid-cols-[minmax(0,0.8fr)_minmax(0,1.55fr)_minmax(0,1.1fr)] gap-[0.9em]">
-        <aside className="panel flex min-h-0 flex-col">
-          <div className="panel-head">
-            <h2>신고</h2>
-            <button type="button" onClick={() => setPinned(null)} className="toggle" aria-pressed={!pinned}>
-              자동
-            </button>
-          </div>
-          <div className="flex min-h-0 flex-col overflow-y-auto">
-            {reports.slice(0, 30).map((report) => (
-              <ReportItem key={report.report_id} report={report} selected={report.report_id === focus?.report_id} onSelect={() => setPinned(report.report_id)} />
-            ))}
-            {reports.length === 0 && <p className="soft px-[0.8em] py-[0.6em]">신고 없음</p>}
-          </div>
-        </aside>
-
-        <article className="panel flex min-h-0 flex-col">
-          {focus ? (
-            <>
-              <div className="flex flex-col gap-[0.35em] px-[1em] pb-[0.8em] pt-[0.9em]">
-                <p className="num soft text-[0.85em]">
-                  #{shortId(focus.report_id)} · {kstTime(focus.created_at)} · {focus.source === "demo" ? "모의" : "시민"} · 반경 {Math.round(focus.radius_m)}m
-                </p>
-                <p className={`display clamp2 text-[1.5em] leading-[1.3] ${focus.description ? "" : "soft"}`}>{focus.description || "위치만 보낸 신고"}</p>
-              </div>
-              <ol className="stages" aria-label="분석 단계">
-                {STAGES.map((stage, i) => {
-                  const state = failed ? "fail" : index > i || index >= STAGES.length ? "done" : index === i && running ? "now" : "todo";
-                  return (
-                    <li key={stage.key} className={`stage ${state}`}>
-                      {stage.label}
-                    </li>
-                  );
-                })}
-              </ol>
-              <div className="log min-h-0 flex-1 overflow-y-auto px-[0.6em] py-[0.5em]" role="log" aria-live="polite">
-                {log.map((line, i) => (
-                  <div key={`${line.at}-${line.tag}-${i}`} className="log-line">
-                    <span className="soft">{kstTime(line.at)}</span>
-                    <span className="soft">{line.offset !== null && line.offset >= 0 ? `+${line.offset.toFixed(1)}s` : ""}</span>
-                    <span className="log-tag" style={{ color: TAG_COLOR[line.tag] ?? "var(--w-text)" }}>
-                      {line.tag}
-                    </span>
-                    <span className="log-msg">{line.text}</span>
-                  </div>
-                ))}
-                {(running || focus.job.state === "queued") && (
-                  <div className="log-line">
-                    <span className="soft">{clock}</span>
-                    <span className="soft">{elapsed !== null ? `${elapsed.toFixed(0)}s` : ""}</span>
-                    <span className="log-tag" style={{ color: "var(--w-beacon)" }}>
-                      {running ? STAGE_TAG[focus.job.stage] ?? focus.job.stage : "QUEUE"}
-                    </span>
-                    <span className="log-msg">
-                      {running ? `${jobLabel(focus.job)} 진행 중` : "분석 대기"} <span className="cursor" />
-                    </span>
-                  </div>
-                )}
-                {!detail && <p className="soft">불러오는 중</p>}
-                <div ref={logEnd} />
-              </div>
-            </>
-          ) : (
-            <p className="soft m-auto text-[1.2em]">신고가 들어오면 분석 로그가 여기에 나와요.</p>
-          )}
-        </article>
-
-        <aside className="panel flex min-h-0 flex-col" aria-label="분석 기록">
-          <div className="panel-head">
-            <h2>분석 기록</h2>
-            {focus && <span className="mono soft text-[0.85em]">#{shortId(focus.report_id)}</span>}
-          </div>
-          {focus ? <AnalysisRecord report={focus} detail={detail} /> : <p className="soft px-[0.8em] py-[0.6em]">신고를 고르면 분석 자료와 사용한 모델이 나와요.</p>}
-        </aside>
-      </section>
-    </main>
-  );
+      </aside>
+      {focus ? <Situation report={focus} detail={detail} analysis={analysis} elapsed={elapsed} /> : (
+        <section role="region" aria-label="상황 카드" className="panel wall-situation wall-empty-situation"><h2 className="display">표시할 신고 없음</h2><p>신고 수신과 분석 상태를 기다리고 있습니다.</p><p className="soft">{connection === "live" ? "신고가 들어오면 최신 분석을 자동으로 따라갑니다." : "연결 복구 후 최신 신고 유무를 확인하세요."}</p></section>
+      )}
+      {focus ? <LiveTimeline key={focus.report_id} report={focus} analysis={analysis} log={log} elapsed={elapsed} clock={clock} loading={!detail} /> : (
+        <article className="panel wall-timeline" aria-label="진행 타임라인"><header className="panel-head"><h2>진행 타임라인</h2></header><div className="wall-empty"><p>신고가 들어오면 분석 로그가 여기에 나와요.</p><p className="soft">접수 → 분류 → 반경 후보 → 저FPS 탐색 → 집중 분석 → 요약</p></div></article>
+      )}
+      <aside className="panel wall-sidebar" aria-label="분석 기록">
+        <h2 className="sr-only">분석 기록</h2>
+        {focus ? <AnalysisRecord key={focus.report_id} report={focus} detail={detail} fresh={analysis} /> : <p className="wall-empty soft">신고를 고르면 대응 방안·CCTV 안내·분석 자료와 사용한 모델이 나와요.</p>}
+      </aside>
+    </section>
+    <p className="wall-footer">ⓘ AI 결과는 담당자 확인 전 미확정 · 공공 CCTV는 위치정보만 사용 · 영상 미분석 · 시연 영상 입력: cam-01 / cam-02 / cam-03</p>
+  </main>;
 }

@@ -1,5 +1,42 @@
 # 협업 인수인계
 
+## 2026-10-26 AI 분석 로그 `/live` v2 구현·검증 (`work/b-app`)
+
+- 승인된 Figma `Uxs1vW6PnDdUticcsX9FcJ`의 Live log v2(3:2/3:159/3:312/3:457/3:604/3:639, 메모 6:35)를 구현했다.
+  상단 상황 카드(유형·우선순위·결과·선정 웹캠·다음 할 일), 6단계 세로 타임라인, `전체 로그`/`단계 보기`,
+  오른쪽 대응/CCTV/분석 자료·모델 탭, 간결한 신고 목록과 신고 없음/연결 끊김 상태를 제공한다.
+  분석 중에는 분석 자료·모델, 그 외에는 대응 탭이 기본이며 수동 탭 선택은 상태 변경에도 유지하고 신고 변경 시 초기화한다.
+  신고 고정/`자동`, 긴급 배너 소리·보기·확인 기록, 전체 처리 이력·모델·첨부 관찰·CCTV 안내를 유지한다.
+- `/live`의 대응은 읽기 전용이며 실행 기록·메모 작성 UI를 숨긴다. 완료·미래 단계의 이유는 펼쳐 볼 수 있다.
+  관리자 상세의 기존 기록·확인·종결 UI는 그대로다. 완료 단계 번호는 청록, 진행은 주황, 해당 없음은 회색이며 직각·토큰 색을 유지한다.
+  근거 프레임은 Figma 도식 대신 인증 프록시의 `/api/v1/admin/reports/{id}/artifacts/{path}`를 사용한다.
+  분석 시작 시각을 `run` 쿼리에 넣어 같은 파일명 재사용 시 브라우저의 이전 60초 캐시를 재사용하지 않게 했고 이미지 실패를 명시한다.
+- 실패 원인과 수정: `live-wall-ui.js`의 합성 선정 카메라에 필수 좌표가 빠져 `toFixed` 렌더링 오류 후 7초 대기가 만료됐다.
+  합성 스키마를 보완했다. `guidance-ui.js`는 선정 카메라가 옮겨진 상단 상황 카드와 새 탭을 따라가도록 선택자를 바꿨다.
+  실제 화면 버그도 수정했다: 대응 탭에서 숨겨지던 수동 반경 변경 경고를 안내 위로 옮겼고, 후보 검색 전 실패를 “웹캠 없음”으로 단정하지 않는다.
+  `완료 → 분석 중 → 완료`에서 상세 응답을 지연시키면 이전 완료 키의 캐시가 되살아나는 문제를 **167 PASS/1 FAIL**로 재현했다.
+  전환마다 이전 상세를 버리는 단일 결과 상태로 수정한 뒤 같은 회귀 검사가 통과했다. 타임아웃을 늘려 통과시키지 않았다.
+- 실제 최종 검증 명령과 결과:
+  - `notebook-b/admin-web`에서 `npx tsc --noEmit -p .` → **통과(exit 0)**.
+  - 같은 위치 `npx eslint components lib tests` → **오류 0 / 기존 경고 2** (`system-status.tsx:63`, `lib/api.ts:245`).
+  - 같은 위치 `npx next build` → **통과(exit 0)**, Next.js 16.4.2, 9개 정적 페이지 생성.
+  - 루트에서 `npx --yes --package @playwright/cli playwright-cli -s=live-response-final --raw run-code --filename=notebook-b/admin-web/tests/response-ui.js`
+    → **103 PASS / 0 FAIL**, 관리자 기존 검사 유지.
+  - 같은 CLI `-s=guidance-debug --raw run-code --filename=notebook-b/admin-web/tests/guidance-ui.js`
+    → **55 PASS / 0 FAIL** (기존 53개 유지, 읽기 전용 2개 추가).
+  - 같은 CLI `-s=live-debug --raw run-code --filename=notebook-b/admin-web/tests/live-wall-ui.js`
+    → **168 PASS / 0 FAIL** (기존 155개 유지, 이미지 실행 구분·지연 상세 전환·초기 실패·미래 단계 등 13개 추가).
+  - 같은 CLI `-s=live-wall-final --raw run-code --filename=output/wall-test.js`
+    → **30/30 화면 + 신고 선택/자동 복귀 1/1 통과**. 두 해상도 모두 overflow=false, clipped=[], textClip=0, overlap=false, rounded=0, errors=0.
+    시각 검사에서 숨김 제목 `.sr-only`와 title이 있는 의도적 말줄임을 구별하도록 로컬 선택자를 조정했다. 시나리오는 줄이지 않았다.
+- 위 브라우저 검사는 모두 **합성 응답 검사**다. 결과는 `output/playwright/live-v2-{response,guidance,flow,wall}-results.txt`.
+  `live-v2-{1920,1366}-{running,complete,all-log,urgent,expand,empty,offline}.png` 14장과 JPEG가 표시된 `wall-{1920,1366}-review.png`를 직접 확인했다.
+  시안과 달리 긴 실제 문구·로그·이미지는 패널 내부에서 스크롤하며 예시 수치·근거 도식을 제품 코드에 넣지 않았다.
+- 재시작: 3000 리스너의 명령줄에 `cctv-app`과 `next ... start`가 있는지 확인한 후 해당 PID만 종료했다.
+  `Start-Process -FilePath 'cmd.exe' -ArgumentList '/c "npx next start -p 3000 -H 127.0.0.1"' -WorkingDirectory 'C:/Users/user/Desktop/ahfzk/cctv-app/notebook-b/admin-web' -WindowStyle Hidden`
+  으로 세션과 분리해 실행했다. 최종 웹 리스너 **PID 36612**, `/login` **200** 확인. B 8000 **PID 21204 유지**, Expo·Tailscale 조작 없음.
+  서버·API·DB·A·Figma 변경 없음. 실제 A 영상·휴대폰·외부망 검증은 이번에 수행하지 않았고 `output/`·`runtime/`·`.env`는 커밋하지 않는다.
+
 ## 2026-10-26 검색 반경 자동 확대 v0.7 (`work/b-app`)
 
 - Claude가 남긴 API·모델·worker·guidance 미커밋 초안을 검토하고 이어서 완성했다. `cctv 최종.md` §6.2와

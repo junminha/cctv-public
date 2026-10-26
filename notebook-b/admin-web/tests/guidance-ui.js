@@ -49,6 +49,10 @@ async page => {
     if (path.endsWith('/public-cameras')) return route.fulfill({ json: { cameras: [], total: 0, source: {} } });
     const id = path.split('/reports/')[1]?.split('/')[0];
     if (!records[id]) return route.fulfill({ status: 404, json: {} });
+    if (new URL(page.url()).pathname === '/live' && !['GET', 'HEAD'].includes(route.request().method())) {
+      errors.push(`Read-only /live attempted a report write: ${route.request().method()} ${path}`);
+      return route.abort();
+    }
     if (path.endsWith('/nearby')) {
       if (delayNearby && id === first) await new Promise(resolve => setTimeout(resolve, 800));
       if (scenario === 'error') return route.fulfill({ status: 503, json: { detail: '안내 서비스 점검 중' } });
@@ -68,9 +72,13 @@ async page => {
   const guidance = () => page.getByRole('region', { name: 'CCTV 안내 및 대응' });
   const detailPanel = () => page.getByRole('complementary', { name: '신고 상세', exact: true });
   async function switchTab(path, name) {
-    if (path === '/') await detailPanel().getByRole('tablist', { name: '신고 상세 탭' }).getByRole('tab', { name, exact: true }).click();
+    const list = path === '/' ? detailPanel().getByRole('tablist', { name: '신고 상세 탭' })
+      : page.getByRole('tablist', { name: '분석 기록 탭' });
+    await list.getByRole('tab', { name, exact: true }).click();
   }
   const responseArea = (path) => path === '/' ? detailPanel() : guidance();
+  // /live v2 keeps the selected camera in the fixed situation card across sidebar tabs.
+  const situation = (path) => path === '/' ? detailPanel() : page.getByRole('region', { name: '상황 카드', exact: true });
   const has = async (locator, text) => {
     await locator.getByText(text, { exact: false }).filter({ visible: true }).first().waitFor({ state: 'visible', timeout: 7000 });
   };
@@ -91,8 +99,12 @@ async page => {
       await switchTab(path, '대응');
       await has(responseArea(path), '긴급');
       await has(responseArea(path), '119 신고 여부 확인');
-      await has(responseArea(path), '가장 적합한 CCTV');
-      await has(responseArea(path), 'cam-02');
+      await has(situation(path), '가장 적합한 CCTV');
+      await has(situation(path), 'cam-02');
+      if (path === '/live') {
+        const writeControls = await guidance().locator('input, textarea, form').count() + await guidance().getByRole('button').count();
+        results.push(`${writeControls === 0 ? 'PASS' : 'FAIL'} ${width} /live response remains read-only`);
+      }
       if (path === '/') {
         const steps = guidance().locator('.guidance-steps > li');
         const futureControls = await steps.nth(1).locator('details, summary, button').count();
@@ -172,12 +184,15 @@ async page => {
   reset(); scenario = 'normal'; delayNearby = true;
   await visit('/live');
   await page.getByRole('button', { name: /검증 신고 둘/ }).click();
+  await switchTab('/live', '대응');
   await has(guidance(), '두 번째 신고 조치 확인');
+  await switchTab('/live', 'CCTV');
   await guidance().getByText('공공 CCTV 추천 목록', { exact: true }).click();
   await has(guidance(), '두 번째 위치 CCTV');
   await page.waitForTimeout(1000);
   if ((await guidance().innerText()).includes('검증용 사거리 CCTV')) throw new Error('Previous report nearby response leaked');
   await page.getByRole('button', { name: '자동', exact: true }).click();
+  await switchTab('/live', '대응');
   await has(guidance(), '119 신고 여부 확인');
   delayNearby = false;
   reset();
@@ -224,7 +239,7 @@ async page => {
       await visit(path);
       const views = path === '/' ? ['CCTV', '대응'] : ['all'];
       for (const view of views) {
-        if (path === '/') await switchTab(path, view);
+        await switchTab(path, view === 'all' ? 'CCTV' : view);
         const notice = guidance().getByText(expansion, { exact: true });
         check(`${width} ${path} ${view} shows this analysis expansion`, await notice.count() === 1 && await notice.isVisible());
         if (await notice.count()) {
@@ -258,7 +273,7 @@ async page => {
         records[first].events.push({ type: 'analysis_requested', created_at: '2026-10-23T07:01:00.000Z', message: '분석 요청', data: {} });
       }
       await visit(path);
-      if (path === '/') await switchTab(path, '대응');
+      await switchTab(path, '대응');
       check(`${path} ${mode} hides expansion notice`, await guidance().getByText(expansion, { exact: true }).count() === 0);
     }
     reset(); expanded();
@@ -269,6 +284,7 @@ async page => {
     check(`${path} expansion notice rounds API radii`, await guidance().getByText(expansion, { exact: true }).count() === 1);
     reset(); expanded(); records[first].radius_m = 200;
     await visit(path);
+    await switchTab(path, '대응');
     check(`${path} changed base radius still demands a rerun`, (await responseArea(path).innerText()).includes('현재 반경과 다릅니다'));
   }
   if (errors.length) throw new Error(errors.join('\n'));

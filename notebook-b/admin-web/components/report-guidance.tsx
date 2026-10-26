@@ -9,7 +9,7 @@ const coordinates = (latitude: number | null, longitude: number | null) =>
   latitude === null || longitude === null ? "좌표 미등록" : `위도 ${latitude.toFixed(5)} · 경도 ${longitude.toFixed(5)}`;
 
 // Current nearby metadata is fetched separately from the stored analysis snapshot.
-export function ReportGuidance({ report, analysis, compact = false, events, onLogged, view = "all" }: {
+export function ReportGuidance({ report, analysis, compact = false, events, onLogged, view = "all", readOnly = false }: {
   report: ReportSummary;
   analysis: Analysis | null;
   compact?: boolean;
@@ -17,6 +17,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
   events?: ReportEvent[];
   onLogged?: () => void;
   view?: "all" | "response" | "cctv";
+  readOnly?: boolean;
 }) {
   const { report_id: reportId, radius_m: radius, incident_type: incident, job: { state } } = report;
   const [attempt, setAttempt] = useState(0);
@@ -64,6 +65,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
   return (
     <div role="region" aria-label="CCTV 안내 및 대응" className={`guidance ${compact ? "guidance-compact" : ""}`}>
       {search?.expanded && <p className="border-b border-rule px-5 py-2 text-xs text-amber">반경 {Math.round(search.base_radius_m)}m → {Math.round(search.radius_m)}m 자동 확대</p>}
+      {readOnly && analysisBaseRadius !== undefined && analysisBaseRadius !== radius && <p role="alert" className="border-b border-rule px-5 py-2 text-xs text-amber">분석 당시 기본 반경 {analysisBaseRadius}m · 현재 반경과 다릅니다. 현재 조건으로 다시 분석하세요.</p>}
       {view === "response" && (
         <section role="region" aria-label="상황 카드" className="situation-card">
           {pending ? (
@@ -86,7 +88,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
           </details>}
         </section>
       )}
-      <section className="guidance-section" hidden={view === "response"}>
+      <section className="guidance-section guidance-cctv" hidden={view === "response"}>
         <h3 className="guidance-title">반경 안 CCTV <span className="guidance-meta">현재 {radius}m</span></h3>
         {!current ? <p role="status" className="guidance-note">CCTV 안내를 불러오는 중…</p> : current.error ? (
           <div role="alert">
@@ -148,7 +150,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
         )}
       </section>
 
-      <section className="guidance-section" hidden={view !== "all"}>
+      <section className="guidance-section guidance-best-section" hidden={view !== "all"}>
         <h3 className="guidance-title">가장 적합한 CCTV</h3>
         {analysis?.nearby && (
           <p className="guidance-note">분석 당시 반경 {analysis.nearby.radius_m}m{analysisBaseRadius !== radius ? " · 현재 반경과 다릅니다. 현재 조건으로 다시 분석하세요." : " 기준"}</p>
@@ -177,7 +179,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
         ) : <p className="guidance-note">{!analysis || pending ? "분석 완료 후 선정 결과를 표시합니다." : "이전 분석에 선정 기록이 없습니다. 다시 분석하면 표시됩니다."}</p>}
       </section>
 
-      <section className="guidance-section" hidden={view === "cctv"}>
+      <section className="guidance-section guidance-response" hidden={view === "cctv"}>
         <h3 className="guidance-title">{view === "all" ? "대응 방안 추천" : "대응 단계"} {view === "all" && plan && <span className={`guidance-priority guidance-${plan.priority}`}>우선순위 {plan.priority_label}</span>}</h3>
         {plan ? (
           <>
@@ -186,14 +188,14 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
               const done = stepLog(i);
               return (
                 <li key={`${analysis?.started_at}:${i}:${done?.created_at ?? "pending"}:${nextStep}`}>
-                  {view !== "all" ? (!done && i !== nextStep ? <p className="response-step">{i + 1}. {step.action}</p> : <details open={!done && i === nextStep} className={done ? "response-step done" : "response-step current"}>
+                  {view !== "all" || readOnly ? (!readOnly && !done && i !== nextStep ? <p className="response-step">{i + 1}. {step.action}</p> : <details open={!done && i === nextStep} className={done ? "response-step done" : i === nextStep ? "response-step current" : "response-step"}>
                     <summary><span>{i + 1}. {step.action}</span>{done && <span className="guidance-logged">✓ {kstTime(done.created_at)} · {String(done.data.by ?? "")}</span>}</summary>
                     <p className="guidance-note">{step.reason}</p>
-                    {events && <div className="guidance-log"><button type="button" disabled={busy !== null} onClick={() => log(`step-${i}`, { kind: "step", step: i })}>{busy === `step-${i}` ? "기록 중" : done ? "다시 기록" : "실행 기록"}</button></div>}
+                    {events && !readOnly && <div className="guidance-log"><button type="button" disabled={busy !== null} onClick={() => log(`step-${i}`, { kind: "step", step: i })}>{busy === `step-${i}` ? "기록 중" : done ? "다시 기록" : "실행 기록"}</button></div>}
                   </details>) : <>
                   <p>{step.action}</p>
                   <p className="guidance-note">{step.reason}</p>
-                  {events && (
+                  {events && !readOnly && (
                     <div className="guidance-log">
                       {done && <span className="guidance-logged">실행 기록 {kstTime(done.created_at)} · {String(done.data.by ?? "")}</span>}
                       <button type="button" disabled={busy !== null} onClick={() => log(`step-${i}`, { kind: "step", step: i })}>
@@ -211,8 +213,8 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
         ) : <p className="guidance-note">{!analysis || pending ? "분석 완료 후 대응 방안을 표시합니다. 긴급 상황은 분석을 기다리지 말고 112·119 절차를 따르세요." : "이전 분석에 대응 방안이 없습니다. 다시 분석하면 표시됩니다."}</p>}
       </section>
 
-      {events && (
-        <section className="guidance-section" hidden={view === "cctv"}>
+      {events && !readOnly && (
+        <section className="guidance-section guidance-history" hidden={view === "cctv"}>
           <h3 className="guidance-title">대응 기록 <span className="guidance-meta">{logs.length}건 · 증거 묶음에 포함</span></h3>
           <form className="guidance-memo" onSubmit={(event) => { event.preventDefault(); if (memo.trim()) log("note", { kind: "note", text: memo.trim() }); }}>
             <input value={memo} maxLength={500} onChange={(event) => setMemo(event.target.value)} placeholder="한 일을 적으세요 (예: 119 신고 확인, 현장 인력 출발)" aria-label="대응 메모" />
