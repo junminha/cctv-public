@@ -61,7 +61,7 @@ def terms(*texts):
     return {term for term in found if len(term) >= 2 and term not in STOPWORDS}
 
 
-def _public(report, incident, words):
+def _public(report, incident, words, webcams=()):
     radius = report['radius_m']
     lat, lon = report['latitude'], report['longitude']
     dlat = radius / 111_320
@@ -77,29 +77,48 @@ def _public(report, incident, words):
         site['devices'].append(camera)
     ranked = []
     fit = FIT.get(incident, {})
-    for (latitude, longitude), site in sites.items():
-        names = [device['name'] for device in site['devices']]
-        place = next((p for p in map(place_of, names) if p), None)
-        places[place or '단서 없음'] = places.get(place or '단서 없음', 0) + 1
-        compact = ' '.join(names).replace('_', '').replace(' ', '')
+
+    def score_of(distance, place, text):
+        compact = text.replace('_', '').replace(' ', '')
         matched = sorted(word for word in words if word in compact)
-        proximity = max(0.0, 1 - site['distance'] / max(radius, 1))
+        proximity = max(0.0, 1 - distance / max(radius, 1))
         score = 0.55 * proximity + 0.30 * fit.get(place, 0.0) + 0.15 * (1.0 if matched else 0.0)
-        reasons = [f"신고 지점에서 {round(site['distance'])}m"]
+        reasons = [f"신고 지점에서 {round(distance)}m"]
         if place:
             reasons.append(f'이름으로 본 장소: {place}' + (' (사건 유형과 맞음)' if fit.get(place) else ''))
         if matched:
             reasons.append('신고 내용의 지명과 일치: ' + ', '.join(matched[:3]))
+        return round(score, 4), reasons
+
+    for (latitude, longitude), site in sites.items():
+        names = [device['name'] for device in site['devices']]
+        place = next((p for p in map(place_of, names) if p), None)
+        places[place or '단서 없음'] = places.get(place or '단서 없음', 0) + 1
+        score, reasons = score_of(site['distance'], place, ' '.join(names))
         first = site['devices'][0]
-        ranked.append({'id': first['id'], 'name': first['name'], 'district': first['district'],
+        ranked.append({'kind': 'public', 'id': first['id'], 'name': first['name'], 'district': first['district'],
                        'purpose': first['purpose'], 'latitude': latitude, 'longitude': longitude,
                        'distance_m': round(site['distance'], 1), 'device_count': len(names), 'place': place,
-                       'score': round(score, 4), 'reasons': reasons})
+                       'score': score, 'reasons': reasons})
+    # Approved demo webcams compete on the same terms (user decision 2026-11-03); they alone also get video AI.
+    placed = [row for row in webcams if row.get('latitude') is not None and row.get('longitude') is not None]
+    for row in placed:
+        name = row.get('name') or row['id']
+        text = f"{name} {row.get('zone') or ''}"
+        place = place_of(text)
+        places[place or '단서 없음'] = places.get(place or '단서 없음', 0) + 1
+        score, reasons = score_of(row['distance_m'], place, text)
+        ranked.append({'kind': 'webcam', 'id': row['id'], 'name': name, 'district': None, 'purpose': '시연 웹캠',
+                       'latitude': row['latitude'], 'longitude': row['longitude'], 'distance_m': round(row['distance_m'], 1),
+                       'device_count': 1, 'place': place, 'score': score,
+                       'reasons': [*reasons, '영상 분석 가능(시연 웹캠)']})
+    if placed:
+        purposes['시연 웹캠'] = len(placed)
     ranked.sort(key=lambda row: (-row['score'], row['distance_m'], row['id']))
     devices = sum(purposes.values())
-    return {'devices': devices, 'sites': len(sites), 'purposes': purposes, 'places': places,
-            'recommended': ranked[:5], 'source': catalog['source']['title'],
-            'note': '공개 위치정보만 사용했습니다. 공공 CCTV 영상은 열람·분석하지 않습니다.'}
+    return {'devices': devices, 'sites': len(sites) + len(placed), 'webcams': len(placed), 'purposes': purposes,
+            'places': places, 'recommended': ranked[:5], 'source': catalog['source']['title'],
+            'note': '공개 CCTV는 위치정보만 사용하며 영상은 열람·분석하지 않습니다. 시연 웹캠은 같은 기준으로 순위에 넣고 영상도 분석합니다.'}
 
 
 def nearby(report, incident_type, keywords, webcams):
@@ -111,7 +130,7 @@ def nearby(report, incident_type, keywords, webcams):
         'webcams': {'total': len(webcams), 'cameras': [
             {'id': row['id'], 'name': row.get('name'), 'zone': row.get('zone'), 'latitude': row.get('latitude'),
              'longitude': row.get('longitude'), 'distance_m': row['distance_m']} for row in webcams]},
-        'public': _public(report, incident_type, words),
+        'public': _public(report, incident_type, words, webcams),
     }
 
 
@@ -134,7 +153,8 @@ def best_camera(result):
     if video:
         note = '웹캠 영상에서 관련 장면 후보가 나온 카메라를 먼저 확인하세요.'
     elif public:
-        note = '웹캠 영상에서 관련 장면을 찾지 못해 위치정보 기준 공공 CCTV를 안내합니다.'
+        note = ('관련 장면은 찾지 못했습니다. 위치 기준 1위인 시연 웹캠을 확인하세요.' if public.get('kind') == 'webcam'
+                else '웹캠 영상에서 관련 장면을 찾지 못해 위치정보 기준 공공 CCTV를 안내합니다.')
     else:
         note = '반경 안에 안내할 CCTV가 없습니다.'
     return {'video': video, 'public': public, 'note': note}
@@ -149,7 +169,10 @@ def plan(report, result):
     outcome = result.get('outcome')
     best = result.get('best_camera') or best_camera(result)
     public = best.get('public')
-    district = public['district'] if public else None
+    ranked = (result.get('nearby') or {}).get('public', {}).get('recommended') or []
+    # The responsible office comes from the first public CCTV in the ranking (webcams have no district).
+    district = next((row['district'] for row in ranked if row.get('kind', 'public') == 'public' and row.get('district')),
+                    public.get('district') if public else None)
     office = _office(district)
     point = f"위도 {report['latitude']:.5f}, 경도 {report['longitude']:.5f}"
     search = result.get('search') or {}
@@ -208,8 +231,13 @@ def plan(report, result):
     else:
         step('신고자에게 무엇이 문제인지 추가로 확인하세요.', '사건 유형을 특정하지 못했습니다.')
 
-    if public:
-        sites = (result.get('nearby') or {}).get('public', {}).get('sites', 0)
+    sites = (result.get('nearby') or {}).get('public', {}).get('sites', 0)
+    if public and public.get('kind') == 'webcam':
+        if not best.get('video'):
+            step(f"반경 안 {sites}곳 중 가장 적합한 CCTV는 {public['name']}({public['id']}, 시연 웹캠, {round(public['distance_m'])}m)입니다. "
+                 '이 웹캠의 실시간·녹화 영상과 근거 프레임을 직접 확인하세요.',
+                 '시연 웹캠은 이 시스템이 영상을 직접 받아 분석합니다.')
+    elif public:
         step(f"공공 CCTV 영상이 필요하면 {public['district']} 관제센터에 정식 절차로 열람을 요청하세요. "
              f"반경 안 {sites}곳 중 가장 적합한 곳: {public['name']} ({round(public['distance_m'])}m, "
              f"위도 {public['latitude']:.5f}, 경도 {public['longitude']:.5f}).",

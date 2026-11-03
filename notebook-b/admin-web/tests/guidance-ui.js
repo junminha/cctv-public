@@ -94,7 +94,7 @@ async page => {
     for (const path of ['/', '/live']) {
       reset(); scenario = 'normal';
       await visit(path);
-      await has(guidance(), '공공 CCTV 4대');
+      await has(guidance(), 'CCTV 4대');
       await has(guidance(), '웹캠 영상 후보 3대');
       await switchTab(path, '대응');
       await has(responseArea(path), '긴급');
@@ -114,7 +114,7 @@ async page => {
       if (path === '/') await detailPanel().locator('.panel-info > summary').click();
       await has(responseArea(path), '출동·조치 결정은 담당자가 합니다');
       await switchTab(path, 'CCTV');
-      const disclosure = guidance().getByText('공공 CCTV 추천 목록', { exact: true });
+      const disclosure = guidance().getByText('CCTV 추천 목록', { exact: true });
       if (path === '/live') await disclosure.click();
       await has(guidance(), '검증용 사거리 CCTV');
       if (path === '/') {
@@ -151,11 +151,11 @@ async page => {
   await page.setViewportSize({ width: 1366, height: 768 });
   reset(); scenario = 'normal';
   await visit('/');
-  await has(guidance(), '공공 CCTV 4대');
+  await has(guidance(), 'CCTV 4대');
   await switchTab('/', '도구');
   await detailPanel().locator('input[type=number]').first().fill('200');
   await switchTab('/', 'CCTV');
-  await has(guidance(), '공공 CCTV 8대');
+  await has(guidance(), 'CCTV 8대');
   await has(detailPanel(), /분석 당시 (기본 )?반경 100m/);
   results.push('Saved radius refresh and historical analysis label PASS');
 
@@ -163,14 +163,14 @@ async page => {
     reset(); scenario = 'empty';
     records[first].analysis = null;
     await visit(path);
-    await has(guidance(), '공공 CCTV 0대');
-    await has(guidance(), '반경 안 공공 CCTV가 없습니다');
+    await has(guidance(), 'CCTV 0대');
+    await has(guidance(), '반경 안 CCTV가 없습니다');
     await switchTab(path, '대응');
     await has(responseArea(path), '분석 완료 후');
     reset(); scenario = 'normal';
     delete records[first].analysis.nearby; delete records[first].analysis.best_camera; delete records[first].analysis.response_plan;
     await visit(path);
-    await has(guidance(), '공공 CCTV 4대');
+    await has(guidance(), 'CCTV 4대');
     await switchTab(path, '대응');
     await has(responseArea(path), '다시 분석');
     reset(); scenario = 'error';
@@ -178,7 +178,7 @@ async page => {
     await has(guidance(), '안내 서비스 점검 중');
     scenario = 'normal';
     await guidance().getByRole('button', { name: '다시 불러오기' }).click();
-    await has(guidance(), '공공 CCTV 4대');
+    await has(guidance(), 'CCTV 4대');
     results.push(`${path}: empty, legacy and API error/retry PASS`);
   }
   reset(); scenario = 'normal'; delayNearby = true;
@@ -187,7 +187,7 @@ async page => {
   await switchTab('/live', '대응');
   await has(guidance(), '두 번째 신고 조치 확인');
   await switchTab('/live', 'CCTV');
-  await guidance().getByText('공공 CCTV 추천 목록', { exact: true }).click();
+  await guidance().getByText('CCTV 추천 목록', { exact: true }).click();
   await has(guidance(), '두 번째 위치 CCTV');
   await page.waitForTimeout(1000);
   if ((await guidance().innerText()).includes('검증용 사거리 CCTV')) throw new Error('Previous report nearby response leaked');
@@ -202,7 +202,7 @@ async page => {
   records[first].events = [{ type: 'analysis_requested', created_at: '2026-10-23T07:01:00.000Z', message: '분석 요청', data: {} }];
   for (const path of ['/', '/live']) {
     await visit(path);
-    await has(guidance(), '공공 CCTV 4대');
+    await has(guidance(), 'CCTV 4대');
     if (path === '/') results.push(`${await page.locator('.score-tag').count() === 0 ? 'PASS' : 'FAIL'} rerun removes previous map camera ranking`);
     await switchTab(path, '대응');
     if ((await responseArea(path).innerText()).includes('119 신고 여부 확인')) throw new Error('Previous run guidance shown during rerun');
@@ -210,7 +210,7 @@ async page => {
   records[first].job = { ...records[first].job, state: 'failed', stage: 'MANUAL_REVIEW_REQUIRED', error: 'B server restarted during analysis' };
   for (const path of ['/', '/live']) {
     await visit(path);
-    await has(guidance(), '공공 CCTV 4대');
+    await has(guidance(), 'CCTV 4대');
     await switchTab(path, '대응');
     if ((await responseArea(path).innerText()).includes('119 신고 여부 확인')) throw new Error(`Previous guidance reappeared after failed rerun on ${path}`);
   }

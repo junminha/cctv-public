@@ -99,10 +99,10 @@ export function Console() {
             <p className="mb-0.5 font-medium">지도 범례</p>
             <ul className="space-y-0.5 text-ink-soft">
               <li className="flex items-center gap-1.5"><span className="legend-report" aria-hidden />신고 지점과 검색 반경</li>
-              <li className="flex items-center gap-1.5"><span className="h-2 w-2 shrink-0 bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
-              <li className="flex items-center gap-1.5"><span className="rec-num top shrink-0">1</span>선택한 신고의 추천 공공 CCTV 순위 (위치정보 기준)</li>
+              <li className="flex items-center gap-1.5"><span className="legend-webcam" aria-hidden />분석 승인된 시연 웹캠 (cam-01~03, 흰 테두리)</li>
+              <li className="flex items-center gap-1.5"><span className="rec-num top shrink-0">1</span>선택한 신고의 추천 CCTV 순위 (공개 CCTV·시연 웹캠)</li>
               <li className="flex items-center gap-1.5">
-                <span className="h-2 w-2 shrink-0 bg-signal ring-1 ring-white" />
+                <span className="legend-public" aria-hidden />
                 <label className="flex items-center gap-1">
                   <input type="checkbox" className="h-3 w-3 shrink-0" checked={showPublic} onChange={(event) => setShowPublic(event.target.checked)} />
                   부산 공개 CCTV 위치 (지도 표시 전용)

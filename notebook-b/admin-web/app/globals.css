@@ -432,3 +432,8 @@ body {
 @keyframes report-breathe { 50% { box-shadow: 0 0 0 5px rgba(15, 42, 61, .25); } }
 @media (prefers-reduced-motion: reduce) { .report-pin.running { animation: none; } }
 .legend-report { display: inline-block; width: 8px; height: 8px; flex-shrink: 0; margin: 0 1px; transform: rotate(45deg); background: var(--ink); }
+
+/* Map legend swatches: public CCTV is a plain red dot; a demo webcam is the same red with a white ring. */
+.legend-public { display: inline-block; width: 8px; height: 8px; flex-shrink: 0; border-radius: 50%; background: var(--signal); }
+.legend-webcam { display: inline-block; width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%; background: var(--signal);
+  border: 2px solid #fff; box-shadow: 0 0 0 1px var(--ink); }

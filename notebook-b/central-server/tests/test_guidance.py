@@ -163,3 +163,24 @@ def test_citizen_handling_shows_stages_and_times_only():
     assert closed['state'] == 'closed' and closed['timeline'][-1]['at'] == 't5'
     rerun = guidance.handling(detail(events=events[:2], job={'state': 'running', 'params': {}}))
     assert rerun['state'] == 'analyzing'
+
+
+def test_demo_webcams_rank_with_public_cctv_on_the_same_terms(monkeypatch):
+    fake_catalog(monkeypatch, [camera('far-junction', '부산대후문삼거리', 35.2330, 129.0840)])
+    webcams = [{'id': 'cam-02', 'name': 'USB 카메라 1', 'zone': '전시 부스 사거리', 'latitude': 35.2311,
+                'longitude': 129.0841, 'distance_m': 15.0},
+               {'id': 'cam-03', 'name': None, 'zone': None, 'latitude': None, 'longitude': None, 'distance_m': 20.0}]
+    public = guidance.nearby(REPORT, 'VEHICLE_OBSTRUCTION', [], webcams)['public']
+    # A webcam without a registered position cannot be ranked; the placed one counts like a site.
+    assert public['devices'] == 2 and public['sites'] == 2 and public['webcams'] == 1
+    assert public['purposes'] == {'생활방범': 1, '시연 웹캠': 1}
+    top = public['recommended'][0]
+    assert top['kind'] == 'webcam' and top['id'] == 'cam-02' and top['purpose'] == '시연 웹캠'
+    assert top['place'] == '도로·교차로' and '영상 분석 가능(시연 웹캠)' in top['reasons']
+    assert public['recommended'][1]['kind'] == 'public'
+    result = analysed(classification={'incident_type': 'VEHICLE_OBSTRUCTION'},
+                      nearby={'webcams': {'cameras': []}, 'public': public})
+    plan = guidance.plan(REPORT, result)
+    actions = ' '.join(step['action'] for step in plan['steps'])
+    assert 'cam-02' in actions and '시연 웹캠' in actions and '관제센터' not in actions
+    assert '금정구청 주정차 단속' in plan['contacts']

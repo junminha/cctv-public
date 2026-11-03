@@ -207,8 +207,12 @@ def test_empty_radius_expands_to_300_and_uses_it_for_candidates_ranking_and_near
     assert detail['radius_m'] == 100
     assert {row['camera_id'] for row in analysis['candidates']} == {'cam-01', 'cam-02'}
     assert analysis['nearby']['radius_m'] == 300 and analysis['nearby']['webcams']['total'] == 2
-    assert analysis['nearby']['public']['devices'] == 1
-    assert analysis['nearby']['public']['recommended'][0]['id'] == 'inside-expanded'
+    # Approved webcams inside the widened radius are ranked with the public CCTV (v0.9).
+    public_ = analysis['nearby']['public']
+    assert public_['devices'] == 3 and public_['webcams'] == 2
+    assert public_['purposes'] == {'생활방범': 1, '시연 웹캠': 2}
+    assert {row['id']: row['kind'] for row in public_['recommended']} == {
+        'inside-expanded': 'public', 'cam-01': 'webcam', 'cam-02': 'webcam'}
     for row in analysis['cameras']:
         assert 200 < row['distance_m'] < 300
         time_match = 1.0 if row['window']['covers_report_time'] else 0.5
@@ -429,7 +433,8 @@ def test_analysis_guides_the_radius_cctv_and_recommends_a_response(system):
     analysis = analyze(client, report_id)['analysis']
     assert analysis['nearby']['webcams']['total'] == 3
     assert {row['id'] for row in analysis['nearby']['webcams']['cameras']} == {'cam-01', 'cam-02', 'cam-03'}
-    assert analysis['nearby']['public']['purposes'] in ({}, {'생활방범': analysis['nearby']['public']['devices']})
+    purposes = analysis['nearby']['public']['purposes']
+    assert purposes['시연 웹캠'] == 3 and sum(purposes.values()) == analysis['nearby']['public']['devices']
     best = analysis['best_camera']['video']
     assert best['camera_id'] == 'cam-02' and best['latitude'] == PLACES['cam-02'][0]
     plan = analysis['response_plan']

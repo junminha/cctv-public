@@ -1,10 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, type Analysis, type Nearby, type ReportEvent, type ReportSummary } from "@/lib/api";
+import { api, type Analysis, type Nearby, type PublicRecommendation, type ReportEvent, type ReportSummary } from "@/lib/api";
 import { kstTime, OUTCOME } from "@/lib/labels";
 
 const distance = (value: number | null) => value === null ? "거리 미등록" : `${Math.round(value)}m`;
+// What a ranked CCTV is: public ones are location-only, demo webcams also have video analysis.
+const describe = (camera: PublicRecommendation) =>
+  camera.kind === "webcam" ? "시연 웹캠 · 영상 분석 가능" : `${camera.district ?? "구역 미상"} · ${camera.purpose} · ${camera.device_count}대 · 영상 미분석`;
+const kindLabel = (camera: PublicRecommendation) => (camera.kind === "webcam" ? "시연 웹캠" : "공공 CCTV");
 const coordinates = (latitude: number | null, longitude: number | null) =>
   latitude === null || longitude === null ? "좌표 미등록" : `위도 ${latitude.toFixed(5)} · 경도 ${longitude.toFixed(5)}`;
 
@@ -83,7 +87,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
           {!plan && (report.priority === "urgent" || report.incident_type === "FALL_SUSPECTED") && <p className="urgent-instruction">신고자에게 119 신고 여부를 확인하고, 하지 않았다면 바로 119에 신고하도록 안내하세요.</p>}
           {best?.note && <details className="guidance-disclosure"><summary>선정 근거·위치 정보</summary>
             {best.video && <><p>{[best.video.name, best.video.zone].filter(Boolean).join(" · ")}</p><p>{coordinates(best.video.latitude, best.video.longitude)}</p></>}
-            {best.public && <p>공공 CCTV · 위치 기준: {best.public.name} · {distance(best.public.distance_m)} · 영상 미분석</p>}
+            {best.public && <p>{kindLabel(best.public)} · 위치 기준 1위: {best.public.name} · {distance(best.public.distance_m)} · {describe(best.public)}</p>}
             <p>{best.note}</p>
           </details>}
         </section>
@@ -99,7 +103,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
           <>
             <div className="guidance-counts">
               <strong>웹캠 영상 후보 {nearby.webcams.total.toLocaleString()}대</strong>
-              <strong>공공 CCTV {nearby.public.devices.toLocaleString()}대 <span className="guidance-meta">· {nearby.public.sites.toLocaleString()}곳</span></strong>
+              <strong>CCTV {nearby.public.devices.toLocaleString()}대 <span className="guidance-meta">· {nearby.public.sites.toLocaleString()}곳{nearby.public.webcams ? ` · 시연 웹캠 ${nearby.public.webcams}대 포함` : ""}</span></strong>
             </div>
             {view === "all" && <><p className="guidance-note">공공 CCTV는 같은 좌표의 장비를 설치 장소 한 곳으로 묶었습니다.</p>
             {nearby.location_kind === "demo" && <p className="guidance-note">시연 지점 기준입니다. 실제 사건 위치·관할 기관과 다를 수 있습니다.</p>}</>}
@@ -117,17 +121,17 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
             ) : <p className="guidance-note">반경 안 영상 분석 가능한 웹캠이 없습니다.</p>}
             {nearby.public.recommended.length > 0 ? (
               <details className="guidance-disclosure" open={!compact}>
-                <summary>공공 CCTV 추천 목록</summary>
+                <summary>CCTV 추천 목록</summary>
                 <p className="guidance-note">위치·이름 기준 상위 {nearby.public.recommended.length}곳 · 적합도는 영상 분석 신뢰도가 아닙니다.</p>
                 <table className="guidance-table">
-                  <caption className="sr-only">현재 반경 안 공공 CCTV 위치정보 추천</caption>
+                  <caption className="sr-only">현재 반경 안 CCTV 추천(공개 CCTV·시연 웹캠)</caption>
                   <thead><tr><th scope="col">위치·정보</th><th scope="col">거리</th><th scope="col">적합도</th></tr></thead>
                   <tbody>{nearby.public.recommended.map((camera, rank) => (
                     <tr key={camera.id}>
                       <td>
                         <span className={`rec-num${rank === 0 ? " top" : ""}`} aria-label={`추천 ${rank + 1}위`}>{rank + 1}</span>
                         <strong>{camera.name}</strong>
-                        {view === "all" && <><span className="guidance-block">{camera.district} · {camera.purpose} · {camera.device_count}대</span>
+                        {view === "all" && <><span className="guidance-block">{describe(camera)}</span>
                         <span className="guidance-note guidance-block">{coordinates(camera.latitude, camera.longitude)}</span>
                         <span className="guidance-note guidance-block">장소 단서: {camera.place ? `${camera.place} (이름으로 추정)` : "없음"}</span>
                         <ul className="guidance-reasons">{camera.reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul></>}
@@ -139,7 +143,7 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
                 </table>
                 <p className="guidance-note">적합도 = 근접 55% + 사건유형·장소 30% + 신고문 지명 일치 15%</p>
               </details>
-            ) : <p className="guidance-note">반경 안 공공 CCTV가 없습니다.</p>}
+            ) : <p className="guidance-note">반경 안 CCTV가 없습니다.</p>}
             {view === "all" ? <><p className="guidance-note">{nearby.public.note}</p><p className="guidance-note">출처: {nearby.public.source}</p></> : <details className="guidance-disclosure"><summary>ⓘ CCTV 안내·출처</summary>
               <p>상세 위치·용도·추천 이유는 지도 번호 핀에서 확인합니다.</p>
               <p>공공 CCTV는 같은 좌표의 장비를 설치 장소 한 곳으로 묶었습니다.</p>
@@ -168,10 +172,10 @@ export function ReportGuidance({ report, analysis, compact = false, events, onLo
             ) : <p className="guidance-note">영상 분석에서 선정된 웹캠이 없습니다.</p>}
             {best.public && (
               <div className="guidance-best">
-                <strong>공공 CCTV · 위치 기준</strong>
+                <strong>{kindLabel(best.public)} · 위치 기준 1위</strong>
                 <p>{best.public.name} · {distance(best.public.distance_m)}</p>
                 <p className="guidance-note">{coordinates(best.public.latitude, best.public.longitude)}</p>
-                <p className="guidance-note">{best.public.district} · {best.public.purpose} · 영상 미분석</p>
+                <p className="guidance-note">{describe(best.public)}</p>
               </div>
             )}
             <p className="guidance-note">{best.note}</p>

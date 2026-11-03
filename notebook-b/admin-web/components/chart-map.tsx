@@ -1,7 +1,7 @@
 "use client";
 
 import "leaflet/dist/leaflet.css";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import { divIcon, latLng, type LatLngExpression, type Map as LeafletMap } from "leaflet";
 import { api, type AnalysisCamera, type Camera, type PublicRecommendation, type ReportSummary } from "@/lib/api";
@@ -46,15 +46,15 @@ function Recommended({ rows }: { rows: PublicRecommendation[] }) {
     <>
       {rows.map((row, index) => (
         <Marker key={row.id} position={[row.latitude, row.longitude]} icon={pin(index + 1)} zIndexOffset={1000 - index}
-          title={`추천 ${index + 1}위 공공 CCTV ${row.name}`}>
+          title={`추천 ${index + 1}위 ${row.kind === "webcam" ? "시연 웹캠" : "공공 CCTV"} ${row.name}`}>
           <Tooltip direction="top" offset={[0, -12]}>{`${index + 1}위 · ${row.name}`}</Tooltip>
           <Popup>
             <strong>{index + 1}위 · {row.name}</strong>
-            <br />{row.district} · {row.purpose} · 장비 {row.device_count}대 · {Math.round(row.distance_m)}m
+            <br />{row.kind === "webcam" ? `${row.id} · 시연 웹캠` : `${row.district ?? "구역 미상"} · ${row.purpose} · 장비 ${row.device_count}대`} · {Math.round(row.distance_m)}m
             <br />위도 {row.latitude.toFixed(5)} · 경도 {row.longitude.toFixed(5)}
             <br />장소 단서: {row.place ? `${row.place} (이름으로 추정)` : "없음"} · 적합도 {Math.round(row.score * 100)}%
             {row.reasons.map((reason) => <span key={reason}><br />· {reason}</span>)}
-            <br /><em>위치정보 기준 · 영상 미분석</em>
+            <br /><em>{row.kind === "webcam" ? "같은 기준의 위치 순위 · 영상 분석 가능" : "위치정보 기준 · 영상 미분석"}</em>
           </Popup>
         </Marker>
       ))}
@@ -132,7 +132,7 @@ function PublicLayer({ enabled, onCount }: { enabled: boolean; onCount?: MapProp
           key={point.id}
           center={[point.latitude, point.longitude]}
           radius={5}
-          pathOptions={{ color: "#fff", weight: 1.5, fillColor: css("signal"), fillOpacity: 0.9 }}
+          pathOptions={{ stroke: false, fillColor: css("signal"), fillOpacity: 0.9 }}
         >
           <Tooltip>{`${point.name} · ${point.purpose} (공개 위치 · 영상 분석 대상 아님)`}</Tooltip>
         </CircleMarker>
@@ -203,15 +203,17 @@ function LiveMap(props: MapProps) {
       {placed.map((camera) => {
         const chosen = selected?.selected_camera_ids.includes(camera.id) ?? false;
         const usable = camera.approved && camera.demo_source;
-        const color = usable ? css("tide") : css("buoy");
+        const color = usable ? css("signal") : css("buoy");
         const score = ranks.get(camera.id)?.rank_score;
+        const radius = chosen ? 9 : 7;
         return (
+          <Fragment key={`${camera.id}-${score ?? "none"}-${chosen}`}>
+          <CircleMarker center={[camera.latitude!, camera.longitude!]} radius={radius + 2.5} interactive={false}
+            pathOptions={{ color: chosen ? css("beacon") : css("ink"), weight: chosen ? 2 : 1, fill: false }} />
           <CircleMarker
-            key={`${camera.id}-${score ?? "none"}-${chosen}`}
             center={[camera.latitude!, camera.longitude!]}
-            radius={chosen ? 11 : 8}
-            pathOptions={{ color: chosen ? css("beacon") : color, weight: chosen ? 4 : 2, fillColor: color,
-              fillOpacity: camera.online ? 0.85 : 0.25 }}
+            radius={radius}
+            pathOptions={{ color: "#fff", weight: 3, fillColor: color, fillOpacity: camera.online ? 0.95 : 0.35 }}
           >
             {score !== undefined ? (
               <Tooltip permanent direction="right" offset={[10, 0]} className="score-tag">{`${camera.id} ${score.toFixed(2)}`}</Tooltip>
@@ -221,6 +223,7 @@ function LiveMap(props: MapProps) {
               </Tooltip>
             )}
           </CircleMarker>
+          </Fragment>
         );
       })}
 

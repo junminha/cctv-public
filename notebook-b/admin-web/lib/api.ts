@@ -113,9 +113,11 @@ export type Benchmark = {
 };
 
 export type PublicRecommendation = {
+  // v0.9: approved demo webcams are ranked with public CCTV; older analyses have no kind (public).
+  kind?: "public" | "webcam";
   id: string;
   name: string;
-  district: string;
+  district: string | null;
   purpose: string;
   latitude: number;
   longitude: number;
@@ -137,6 +139,7 @@ export type Nearby = {
   public: {
     devices: number;
     sites: number;
+    webcams?: number;
     purposes: Record<string, number>;
     places: Record<string, number>;
     recommended: PublicRecommendation[];
