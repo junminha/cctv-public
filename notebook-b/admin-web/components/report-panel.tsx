@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, bPath, type AnalysisCamera, type AnalyzeParams, type Camera, type Clip, type ReportDetail, type ReportSummary } from "@/lib/api";
-import { INCIDENT, kst, kstTime, OUTCOME, shortId, sourceLabel, sourceLabelAI, STAGES } from "@/lib/labels";
+import { INCIDENT, kst, kstReadable, kstTime, relevanceLabel, OUTCOME, shortId, sourceLabel, sourceLabelAI, STAGES } from "@/lib/labels";
 import { ReportGuidance } from "./report-guidance";
 import { ConsoleTabs } from "./console-tabs";
 import { DispatchPanel } from "./dispatch-panel";
@@ -54,11 +54,16 @@ function Ranking({ cameras, selected, reportId }: { cameras: AnalysisCamera[]; s
         <img src={bPath(`/api/v1/admin/reports/${reportId}/artifacts/${evidence.path}`)} alt={`${row.camera_id} 근거 프레임`} />
       </a> : <span className="camera-no-evidence">근거 프레임 없음</span>}
       <div><p><strong className="font-mono">{index + 1} {row.camera_id} · {Math.round(row.distance_m)}m</strong> {chosen && <strong className="text-tide">집중 분석</strong>}</p>
-        <p className="text-ink-soft">{row.status === "available" ? <>영상 관련성 <span className="font-mono">{relevance?.toFixed(2) ?? "—"}</span></> : <span role="alert" className="text-amber">{row.status === "RECORDING_UNAVAILABLE" ? "녹화 없음" : "연결 불가"}{row.detail ? ` · ${row.detail}` : ""}</span>} · 순위 점수 <span className="font-mono">{row.rank_score?.toFixed(2) ?? "—"}</span> · <span className="font-mono">{frames || "—"}</span>프레임</p>
+        <p className="text-ink-soft">{row.status === "available"
+          ? <>관련 장면 가능성 <strong className="text-ink">{relevanceLabel(relevance)}</strong>{relevance !== undefined && <> ({Math.round(relevance * 100)}%)</>} · 종합 {index + 1}위{frames > 0 && <> · 영상 {frames}장면 확인</>}</>
+          : <span role="alert" className="text-amber">{row.status === "RECORDING_UNAVAILABLE" ? "녹화 없음" : "연결 불가"}{row.detail ? ` · ${row.detail}` : ""}</span>}</p>
         {(row.zone || evidence) && <p className="text-ink-soft">{row.zone}{evidence && <> · {evidence.findings.join(", ")}</>}</p>}
       </div>
     </li>;
-  })}<li className="ranking-note">순위 점수 = (0.20·근접 + 0.15·시간 일치 + 0.45·영상 관련성) ÷ 0.80. 관련성이 0인 카메라는 집중 분석하지 않습니다.</li></ol>;
+  })}<li className="ranking-note"><details><summary>ⓘ 순위는 어떻게 정하나요</summary>
+    거리(가까울수록), 신고 시각과 영상 시각이 겹치는지, 영상에서 신고 내용과 관련된 장면이 보이는지를 합쳐 정합니다.
+    관련 장면이 전혀 보이지 않은 카메라는 집중 분석하지 않습니다. (종합 = (0.20·근접 + 0.15·시간 일치 + 0.45·영상 관련성) ÷ 0.80)
+  </details></li></ol>;
 }
 
 export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview }: {
@@ -94,20 +99,17 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
     changed.current = onChanged;
   });
 
-  // Save the radius shortly after the slider or number stops moving; the map previews it immediately.
-  useEffect(() => {
+  // The map previews the dragged radius right away; it is saved only when the operator presses save.
+  async function saveRadius() {
     if (!radiusValid || radius === detail.radius_m) return;
-    const timer = setTimeout(async () => {
-      try {
-        await api(`/api/v1/admin/reports/${detail.report_id}/radius`, { method: "PUT", json: { radius_m: radius } });
-        setRadiusNote("저장했습니다. 후보 카메라에 반영하려면 다시 분석하세요.");
-        changed.current();
-      } catch (reason) {
-        setRadiusNote(reason instanceof Error ? reason.message : "반경을 바꾸지 못했습니다.");
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [radius, radiusValid, detail.radius_m, detail.report_id]);
+    try {
+      await api(`/api/v1/admin/reports/${detail.report_id}/radius`, { method: "PUT", json: { radius_m: radius } });
+      setRadiusNote("저장했습니다. 후보 카메라에 반영하려면 다시 분석하세요.");
+      changed.current();
+    } catch (reason) {
+      setRadiusNote(reason instanceof Error ? reason.message : "반경을 바꾸지 못했습니다.");
+    }
+  }
 
   function changeRadius(value: number) {
     setRadius(value);
@@ -149,8 +151,8 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
   return (
     <div className="report-panel">
       <div className="report-head">
-        <div className="flex flex-wrap gap-x-2 font-mono text-[11px] text-ink-soft">
-          <span>#{shortId(detail.report_id)}</span><span>{kst(detail.created_at)} 접수</span><span>{sourceLabel(detail.source)}</span>
+        <div className="report-meta">
+          <span className="font-mono">#{shortId(detail.report_id)}</span><span>{kstReadable(detail.created_at)} 접수</span><span>{sourceLabel(detail.source)}</span>
           <span>{detail.location_kind === "demo" ? "시연 지점" : "실제 위치"} · 반경 {detail.radius_m}m</span>
         </div>
         <div className="report-title"><h2 className="font-display text-2xl">{INCIDENT[analysis?.classification?.incident_type ?? live.incident_type ?? ""] ?? (live.priority_basis === "keywords" && priority === "urgent" ? "쓰러짐 의심" : running ? "분석 중" : "분류 전")}</h2>
@@ -158,7 +160,7 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         </div>
       </div>
       <ConsoleTabs label="신고 상세 탭" value={tab} onChange={setTab} items={[
-        { id: "response", label: "대응" }, { id: "cctv", label: "CCTV" }, { id: "report", label: "신고 내용" }, { id: "dispatch", label: "기관 연결" }, { id: "tools", label: "도구" },
+        { id: "response", label: "대응" }, { id: "cctv", label: "CCTV" }, { id: "report", label: "신고 내용" }, { id: "dispatch", label: "기관 연결" }, { id: "tools", label: "분석·보관" },
       ]}>
         {live.job.error && <p role="alert" className="panel-alert">{outcome?.label ?? "분석 실패"} · {live.job.error}</p>}
         {analysis?.warnings?.length ? <ul role="alert" className="panel-alert">{analysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
@@ -259,27 +261,37 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
           <div className="mt-1 flex items-center gap-2">
             <input aria-label="검색 반경 미터" type="number" min={1} max={5000} value={Number.isFinite(radius) ? radius : ""}
               onChange={(event) => changeRadius(event.target.valueAsNumber)}
+              onKeyDown={(event) => { if (event.key === "Enter") saveRadius(); }}
               className="w-24 border border-rule bg-surface px-2 py-1 font-mono text-sm" />
-            <span className="text-xs text-ink-soft">m (1~5000) · 움직이면 바로 저장</span>
+            <span className="text-xs text-ink-soft">m (1~5000)</span>
+            <button type="button" onClick={saveRadius} disabled={!radiusValid || radius === detail.radius_m}
+              className="ml-auto border border-ink px-3 py-1 text-xs font-bold disabled:opacity-40">반경 저장</button>
+            {radius !== detail.radius_m && radiusValid && (
+              <button type="button" onClick={() => changeRadius(detail.radius_m)} className="text-xs text-ink-soft underline">되돌리기</button>
+            )}
           </div>
+          {radius !== detail.radius_m && radiusValid && <p className="mt-1 text-xs text-amber">지도에 미리 보여주는 중입니다. 저장해야 적용됩니다.</p>}
           {radiusNote && <p role="status" className="mt-1 text-xs">{radiusNote}</p>}
         </div>
 </Section>      <Section title="분석 실행">
         <div className="grid grid-cols-2 gap-2 text-xs">
           <label className="space-y-0.5"><span className="text-ink-soft">방식</span>
             <select className="w-full border border-rule bg-surface px-2 py-1" value={params.mode} onChange={(e) => setParams({ ...params, mode: e.target.value as AnalyzeParams["mode"] })}>
-              <option value="selective">신고 기반 선택 분석</option><option value="all">전체 카메라 집중 분석</option><option value="benchmark">두 방식 비교 실험</option>
+              <option value="selective">관련 카메라만 자세히 (기본)</option><option value="all">모든 카메라 자세히</option><option value="benchmark">두 방식 비교 실험</option>
             </select>
           </label>
           <label className="space-y-0.5"><span className="text-ink-soft">영상</span>
             <select className="w-full border border-rule bg-surface px-2 py-1" value={params.source} onChange={(e) => setParams({ ...params, source: e.target.value as AnalyzeParams["source"] })}>
-              <option value="live">실시간 스트림</option><option value="recording">신고 시각 녹화</option>
+              <option value="live">지금 화면</option><option value="recording">신고 시각 녹화</option>
             </select>
           </label>
-          <label className="space-y-0.5"><span className="text-ink-soft">길이 (초)</span>
+        </div>
+        <details className="advanced-settings mt-2 text-xs"><summary>고급 설정 (영상 길이·분석 속도·반경 자동 확대)</summary>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <label className="space-y-0.5"><span className="text-ink-soft">영상 길이 (초)</span>
             <input type="number" min={2} max={60} className="w-full border border-rule bg-surface px-2 py-1" value={params.duration} onChange={(e) => setParams({ ...params, duration: Number(e.target.value) })} />
           </label>
-          <label className="space-y-0.5"><span className="text-ink-soft">탐색 / 집중 FPS</span>
+          <label className="space-y-0.5"><span className="text-ink-soft">초당 확인 장면 수 (훑어보기 / 자세히)</span>
             <span className="flex gap-1">
               <input aria-label="탐색 FPS" type="number" min={0.2} max={5} step={0.1} className="w-full border border-rule bg-surface px-2 py-1" value={params.sample_fps} onChange={(e) => setParams({ ...params, sample_fps: Number(e.target.value) })} />
               <input aria-label="집중 FPS" type="number" min={0.5} max={10} step={0.5} className="w-full border border-rule bg-surface px-2 py-1" value={params.focus_fps} onChange={(e) => setParams({ ...params, focus_fps: Number(e.target.value) })} />
@@ -289,9 +301,10 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
             <input aria-label="자동 확대 횟수" type="number" min={0} max={5} step={1} aria-invalid={!expandValid} className="w-full border border-rule bg-surface px-2 py-1"
               value={Number.isFinite(params.expand_steps) ? params.expand_steps : ""}
               onChange={(event) => setParams({ ...params, expand_steps: event.target.valueAsNumber })} />
-            <span className="block text-ink-soft">0~5회 · 웹캠이 없으면 100m씩 · 최대 5000m</span>
+            <span className="block text-ink-soft">반경 안에 웹캠이 없으면 100m씩 넓혀 다시 찾는 횟수(0~5)</span>
           </label>
         </div>
+        </details>
         {!expandValid && <p role="alert" className="mt-1 text-xs text-amber">자동 확대 횟수는 0~5 사이의 정수로 입력하세요.</p>}
         <button disabled={running || busy !== "" || !expandValid} onClick={() => act("analyze", () => api(`/api/v1/admin/reports/${detail.report_id}/analyze`, { method: "POST", json: params }), "분석을 대기열에 넣었습니다.")}
           className="mt-3 w-full bg-ink px-3 py-2 text-sm font-medium text-white disabled:opacity-40">

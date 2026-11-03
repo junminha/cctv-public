@@ -112,7 +112,7 @@ async page => {
     summary[urgent].alert_acknowledged = false;
     await page.goto(base + '/');
     await page.waitForSelector('.urgent-banner', { timeout: 8000 }).catch(() => {});
-    check(`${w} banner shows the urgent report before analysis`, await page.locator('.urgent-banner').getByText('쓰러짐 의심 (신고문 기준)').count() === 1);
+    check(`${w} banner shows the urgent report before analysis`, await page.locator('.urgent-banner').getByText('쓰러짐·화재 의심 (신고문 기준)').count() === 1);
     const first = await page.locator('aside ul li button').first().textContent();
     check(`${w} urgent report is first in the queue`, first.includes('정문 앞에') && first.includes('긴급'));
     await page.getByRole('button', { name: /주차장 입구/ }).click();
@@ -122,21 +122,21 @@ async page => {
     check(`${w} logged step shows time and actor`, await panel().locator('.guidance-logged').count() === 1
       && (await panel().locator('.guidance-logged').innerText()).includes('admin'));
     await tab('대응').focus();
-    for (const [key, expected] of [['ArrowRight', 'CCTV'], ['ArrowRight', '신고 내용'], ['ArrowRight', '기관 연결'], ['ArrowRight', '도구'],
-      ['ArrowRight', '대응'], ['ArrowLeft', '도구'], ['Home', '대응'], ['End', '도구']]) {
+    for (const [key, expected] of [['ArrowRight', 'CCTV'], ['ArrowRight', '신고 내용'], ['ArrowRight', '기관 연결'], ['ArrowRight', '분석·보관'],
+      ['ArrowRight', '대응'], ['ArrowLeft', '분석·보관'], ['Home', '대응'], ['End', '분석·보관']]) {
       await page.keyboard.press(key);
       await selectedTab(expected);
       check(`${w} ${key} moves keyboard focus to ${expected}`, await tab(expected).evaluate(node => node === document.activeElement));
     }
     await tab('신고 내용').click();
     check(`${w} report content tab preserves the report text`, (await panel().getByRole('tabpanel').innerText()).includes('주차장 입구'));
-    await tab('도구').click();
+    await tab('분석·보관').click();
     check(`${w} tools tab preserves analysis and evidence controls`, await panel().getByRole('heading', { name: '분석 실행', exact: true }).count() === 1
       && await panel().getByRole('link', { name: /증거.*ZIP/ }).count() === 1);
     await page.getByRole('button', { name: /정문 앞에/ }).click();
     await tab('대응').waitFor();
     await selectedTab('대응');
-    await tab('도구').click();
+    await tab('분석·보관').click();
     const start = panel().getByRole('button', { name: '분석 시작', exact: true });
     check(`${w} analysis can start for queued intake without requested params`, await start.count() === 1 && await start.isEnabled());
     await tab('CCTV').click();
@@ -190,7 +190,7 @@ async page => {
   check('/live banner and urgent tag', await page.locator('.urgent-banner').count() === 1 && await page.locator('.wall .urgent-tag').count() === 1);
   await page.getByRole('button', { name: /주차장 입구/ }).click();
   await page.waitForTimeout(1200);
-  const logTags = await page.locator('.log-line .log-tag').allTextContents();
+  const logTags = await page.locator('.log-line .log-tag').evaluateAll((els) => els.map((el) => el.dataset.tag));
   check('/live shows response logs as LOG lines', logTags.filter((tag) => tag === 'LOG').length >= 3, logTags.join(','));
   check('/live no overflow', !(await overflow()));
   await page.screenshot({ path: 'output/playwright/response-1920-live.png' });
@@ -206,7 +206,8 @@ async page => {
   summary[done].job.params.duration = 17;
   await page.goto(base + '/');
   await page.getByRole('button', { name: /주차장 입구/ }).click();
-  await tab('도구').click();
+  await tab('분석·보관').click();
+  await panel().locator('details.advanced-settings > summary').click();
   const expandSteps = panel().getByLabel('자동 확대 횟수', { exact: true });
   check('analysis tools expose configurable automatic expansion count', await expandSteps.count() === 1);
   if (await expandSteps.count()) {
@@ -235,7 +236,7 @@ async page => {
       await page.screenshot({ path: `output/playwright/expand-${width}-tools.png` });
     }
     await page.getByRole('button', { name: /정문 앞에/ }).click();
-    await tab('도구').click();
+    await tab('분석·보관').click();
     check('intake without params receives expansion default 2', await expandSteps.inputValue() === '2');
   }
 

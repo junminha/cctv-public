@@ -4,6 +4,7 @@ import "leaflet/dist/leaflet.css";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip, useMap, useMapEvents } from "react-leaflet";
 import { divIcon, latLng, type LatLngExpression, type Map as LeafletMap } from "leaflet";
+import { relevanceLabel } from "@/lib/labels";
 import { api, type AnalysisCamera, type Camera, type PublicRecommendation, type ReportSummary } from "@/lib/api";
 
 const BUSAN: LatLngExpression = [35.1336, 129.103]; // PKNU Daeyeon campus, exhibition venue
@@ -216,7 +217,7 @@ function LiveMap(props: MapProps) {
             pathOptions={{ color: "#fff", weight: 3, fillColor: color, fillOpacity: camera.online ? 0.95 : 0.35 }}
           >
             {score !== undefined ? (
-              <Tooltip permanent direction="right" offset={[10, 0]} className="score-tag">{`${camera.id} ${score.toFixed(2)}`}</Tooltip>
+              <Tooltip permanent direction="right" offset={[10, 0]} className="score-tag">{`${camera.id} 관련 ${relevanceLabel(score)}`}</Tooltip>
             ) : (
               <Tooltip direction="top" offset={[0, -8]}>
                 {`${camera.id}${camera.zone ? ` · ${camera.zone}` : ""}${usable ? "" : " · 분석 미승인"}${camera.online ? "" : " · 오프라인"}`}

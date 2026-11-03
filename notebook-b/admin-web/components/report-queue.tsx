@@ -13,9 +13,10 @@ export function ReportQueue({ reports, selectedId, connection, onSelect }: {
   connection: keyof typeof CONNECTION;
   onSelect: (id: string) => void;
 }) {
-  const [filter, setFilter] = useState<"urgent" | "processing" | "completed">("processing");
+  const [filter, setFilter] = useState<"all" | "urgent" | "processing" | "completed">("all");
   const complete = (report: ReportSummary) => !!(report.review?.confirmed_at || report.review?.closed_at);
   const groups = {
+    all: reports,
     urgent: reports.filter((report) => report.priority === "urgent" && !complete(report)),
     processing: reports.filter((report) => !complete(report)),
     completed: reports.filter(complete),
@@ -32,6 +33,7 @@ export function ReportQueue({ reports, selectedId, connection, onSelect }: {
         </div>
       </div>
       <ConsoleTabs label="신고 목록 필터" value={filter} onChange={setFilter} items={[
+        { id: "all", label: <>전체 <span className="font-mono">{groups.all.length}</span></> },
         { id: "urgent", label: <>긴급 <span className="font-mono">{groups.urgent.length}</span></> },
         { id: "processing", label: <>처리 중 <span className="font-mono">{groups.processing.length}</span></> },
         { id: "completed", label: <>완료 <span className="font-mono">{groups.completed.length}</span></> },

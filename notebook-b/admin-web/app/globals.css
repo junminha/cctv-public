@@ -214,7 +214,7 @@ body {
 .wall .guidance-cautions { font-size: .85em; }
 .wall .guidance-priority { display: inline-block; }
 .wall .wall-empty { padding: 1em; font-size: .9em; line-height: 1.6; }
-.wall .wall-footer { flex: none; font-size: .62em; color: var(--ink-soft); }
+.wall .wall-footer { flex: none; font-size: .78em; color: var(--ink-soft); }
 .wall .urgent-banner { flex: none; font-size: .8em; }
 @media (max-width: 1100px) {
   .wall .wall-workspace { grid-template-columns: 180px minmax(0, 1fr) minmax(280px, .8fr); gap: 10px; }
@@ -321,9 +321,9 @@ body {
 .report-queue > .console-tabs { margin: 12px 16px; border: 1px solid var(--ink); }
 .report-queue > .console-tabs [role="tab"] { font-size: 12px; padding: 7px 2px; }
 .report-queue > .console-tabs [role="tab"] + [role="tab"] { border-left: 1px solid var(--rule); }
-.report-queue > .console-tabs [role="tab"]:first-child { color: var(--signal); }
-.report-queue > .console-tabs [role="tab"]:first-child[aria-selected="true"] { background: var(--signal); color: var(--surface); }
-.report-queue > .console-tabs [role="tab"]:nth-child(2)[aria-selected="true"] { background: var(--beacon); }
+.report-queue > .console-tabs [role="tab"]:nth-child(2) { color: var(--signal); }
+.report-queue > .console-tabs [role="tab"]:nth-child(2)[aria-selected="true"] { background: var(--signal); color: var(--surface); }
+.report-queue > .console-tabs [role="tab"]:nth-child(3)[aria-selected="true"] { background: var(--beacon); }
 .report-queue > .console-tabs [role="tab"]:last-child[aria-selected="true"] { background: var(--tide); }
 .queue-selected { border-left: 3px solid var(--beacon); padding-left: 13px; }
 .report-panel { display: flex; flex-direction: column; min-width: 0; }
@@ -457,3 +457,11 @@ body {
 .dispatch-draft textarea { width: 100%; border: 1px solid var(--rule); padding: 6px 8px; font-size: 12px; line-height: 1.5; }
 .dispatch-log pre { white-space: pre-wrap; font-family: inherit; font-size: 12px; background: var(--chart); padding: 6px 8px; margin-top: 4px; }
 .dispatch-error { color: var(--signal); font-weight: 600; margin-top: 6px; }
+
+/* Usability pass (2026-11-03): readable meta line, collapsibles that read as buttons, legend toggle. */
+.report-meta { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 12px; color: var(--ink-soft); }
+.report-panel details > summary, .console-legend details > summary { cursor: pointer; }
+.report-panel details > summary:hover, .console-legend details > summary:hover { text-decoration: underline; }
+.advanced-settings > summary { color: var(--ink); font-weight: 600; }
+.ranking-note details > summary { color: var(--ink-soft); }
+.legend-toggle:not([open]) > summary { margin-bottom: 0; }

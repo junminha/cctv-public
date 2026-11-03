@@ -96,7 +96,7 @@ async page => {
   await frames.getByRole('button', { name: '검증 frame-0 크게 보기', exact: true }).click();
   check('analysis source is clear', (await dialog.textContent()).includes('AI 표시가 포함된 분석본'));
   await dialog.getByRole('button', { name: '닫기', exact: true }).click();
-  await tab('도구').click();
+  await tab('분석·보관').click();
   check('preserve mismatch remains visible', (await panel.textContent()).includes('길이 불일치'));
   check('preserved clip has playback and file info', await panel.getByRole('list', { name: '보존 영상 자료' }).getByRole('button').count() >= 2);
   check('existing ZIP download retained', await panel.getByRole('link', { name: '증거 묶음 다운로드 (ZIP)' }).count() === 1);

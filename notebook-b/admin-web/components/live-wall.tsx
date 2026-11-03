@@ -302,7 +302,8 @@ export function LiveWall() {
     <UrgentBanner reports={reports} onShow={setPinned} />
     <section className="wall-workspace">
       <aside className="panel wall-queue" aria-label="신고 목록">
-        <div className="panel-head"><h2>신고</h2><button type="button" onClick={() => setPinned(null)} className="toggle" aria-pressed={!pinned}>자동</button></div>
+        <div className="panel-head"><h2>신고</h2><button type="button" onClick={() => setPinned(null)} className="toggle" aria-pressed={!pinned}
+          title="분석 중인 신고를 자동으로 따라가 보여줍니다">자동 따라가기</button></div>
         <div className="queue-scroll">
           {reports.slice(0, 30).map(report => <ReportItem key={report.report_id} report={report} selected={report.report_id === focus?.report_id} onSelect={() => setPinned(report.report_id)} />)}
           {reports.length === 0 && <p className="wall-empty">{connection === "live" ? "신고 없음" : "표시할 신고 없음 · 연결 상태 확인 필요"}</p>}

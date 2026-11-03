@@ -164,8 +164,8 @@ async page => {
     }
     await tab('CCTV').click(); await page.getByRole('button', { name: /타임라인 검증 신고 둘/ }).click(); await selected('대응');
     check(`${width} report switch resets default tab`, await tab('대응').getAttribute('aria-selected') === 'true');
-    check(`${width} pinned report retains automatic button name`, await page.getByRole('button', { name: '자동', exact: true }).count() === 1);
-    await page.getByRole('button', { name: '자동', exact: true }).click();
+    check(`${width} pinned report retains automatic button name`, await page.getByRole('button', { name: '자동 따라가기', exact: true }).count() === 1);
+    await page.getByRole('button', { name: '자동 따라가기', exact: true }).click();
     await situation().locator('.display').filter({ hasText: '타임라인 검증 신고 하나' }).waitFor(); await tab('대응').click();
     check(`${width} live response remains read-only`, await sidebar().getByRole('button', { name: /실행 기록|^기록$/ }).count() === 0 && await sidebar().getByLabel('대응 메모').count() === 0);
     await layout(`${width} complete`); await page.screenshot({ path: `output/playwright/live-v2-${width}-complete.png` });
@@ -173,7 +173,7 @@ async page => {
     check(`${width} full log toggle initially unpressed`, await toggle.getAttribute('aria-pressed') === 'false'); await toggle.click();
     check(`${width} full log toggle pressed`, await page.getByRole('button', { name: '단계 보기', exact: true }).getAttribute('aria-pressed') === 'true');
     const lines = timeline().locator('.log-line').filter({ visible: true });
-    const tags = await lines.locator('.log-tag').allTextContents();
+    const tags = await lines.locator('.log-tag').evaluateAll((els) => els.map((el) => el.dataset.tag));
     check(`${width} full log retains every tag and old runs`, ['RECEIVED', 'ATTACH', 'QUEUE', 'RERUN', 'CLASSIFY', 'CANDIDATES', 'SCAN', 'FOCUS', 'SUMMARY', 'EXPAND', 'VOICE', 'PHONE', 'WARN', 'DONE', 'LOG', 'REVIEW'].every(tag => tags.includes(tag))
       && tags.filter(tag => tag === 'QUEUE').length === 2 && tags.filter(tag => tag === 'DONE').length === 2 && (await lines.allTextContents()).join(' ').includes('전체 로그 보존 검증'), tags.join(','));
     check(`${width} full log chronological`, await lines.evaluateAll(nodes => {

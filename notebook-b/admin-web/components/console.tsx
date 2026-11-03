@@ -96,7 +96,7 @@ export function Console() {
         />
         <div className="pointer-events-none absolute bottom-6 left-3 z-[500]">
           <div className="console-legend pointer-events-auto border border-rule bg-surface px-2 py-1.5 text-[11px] leading-[1.35]">
-            <p className="mb-0.5 font-medium">지도 범례</p>
+            <details open className="legend-toggle"><summary className="mb-0.5 font-medium">지도 범례</summary>
             <ul className="space-y-0.5 text-ink-soft">
               <li className="flex items-center gap-1.5"><span className="legend-report" aria-hidden />신고 지점과 검색 반경</li>
               <li className="flex items-center gap-1.5"><span className="legend-webcam" aria-hidden />분석 승인된 시연 웹캠 (cam-01~03, 흰 테두리)</li>
@@ -105,15 +105,18 @@ export function Console() {
                 <span className="legend-public" aria-hidden />
                 <label className="flex items-center gap-1">
                   <input type="checkbox" className="h-3 w-3 shrink-0" checked={showPublic} onChange={(event) => setShowPublic(event.target.checked)} />
-                  부산 공개 CCTV 위치 (지도 표시 전용)
+                  공개 CCTV 위치 보기 (부산, 지도 표시 전용)
                 </label>
               </li>
             </ul>
             {showPublic && publicCount && (
-              <p className="mt-1 font-mono text-[11px] text-ink-soft">
-                {publicCount.total < 0 ? "확대하면 공개 위치를 표시합니다" : `${publicCount.shown.toLocaleString()} / ${publicCount.total.toLocaleString()}개 표시`}
+              <p className="mt-1 text-[11px] text-ink-soft">
+                {publicCount.total < 0 ? "지도를 더 확대하면 공개 CCTV가 보여요."
+                  : publicCount.total === 0 ? "이 화면 안에는 공개 CCTV가 없어요."
+                  : `공개 CCTV ${publicCount.shown.toLocaleString()}곳 표시 중${publicCount.total > publicCount.shown ? ` (전체 ${publicCount.total.toLocaleString()}곳 중)` : ""}`}
               </p>
             )}
+            </details>
           </div>
         </div>
       </section>

@@ -3,14 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { bPath, type Analysis, type ReportSummary } from "@/lib/api";
 import { jobLabel, kstTime, STAGES } from "@/lib/labels";
-import { STAGE_TAG, TAG_COLOR, type LogLine } from "@/lib/live-log";
+import { STAGE_TAG, TAG_COLOR, TAG_LABEL, type LogLine } from "@/lib/live-log";
 import { LiveEvidence } from "./live-evidence";
 
 function LogRow({ line }: { line: LogLine }) {
   return <div className="log-line">
     <span className="soft mono">{kstTime(line.at)}</span>
     <span className="soft mono">{line.offset !== null && line.offset >= 0 ? `+${line.offset.toFixed(1)}s` : ""}</span>
-    <span className="log-tag mono" style={{ color: TAG_COLOR[line.tag] ?? "var(--w-text)" }}>{line.tag}</span>
+    <span className="log-tag" data-tag={line.tag} style={{ color: TAG_COLOR[line.tag] ?? "var(--w-text)" }}>{TAG_LABEL[line.tag] ?? line.tag}</span>
     <span className="log-msg">{line.text}</span>
   </div>;
 }
@@ -44,7 +44,8 @@ export function LiveTimeline({ report, analysis, log, elapsed, clock, loading }:
   const liveLine = pending && <div className="log-line live-line">
     <span className="soft mono">{clock}</span>
     <span className="soft mono">{elapsed !== null ? `${elapsed.toFixed(0)}s` : ""}</span>
-    <span className="log-tag mono">{running ? STAGE_TAG[report.job.stage] ?? report.job.stage : "QUEUE"}</span>
+    {(() => { const tag = running ? STAGE_TAG[report.job.stage] ?? report.job.stage : "QUEUE";
+      return <span className="log-tag" data-tag={tag}>{TAG_LABEL[tag] ?? tag}</span>; })()}
     <span className="log-msg">{jobLabel(report.job)}{running ? " 진행 중" : ""}</span>
   </div>;
 
@@ -64,7 +65,7 @@ export function LiveTimeline({ report, analysis, log, elapsed, clock, loading }:
             return <li key={stage.key} ref={now ? active : undefined} className={`timeline-stage ${state}`}>
               <span className="stage-number mono">{i + 1}</span>
               <div className="stage-content">
-                <h3>{stage.label}<span className="mono soft stage-code">{STAGE_TAG[stage.key]}</span></h3>
+                <h3>{stage.label}</h3>
                 {groups[i].map((line, n) => <LogRow key={`${line.at}-${line.tag}-${n}`} line={line} />)}
                 {now && liveLine}
                 {!groups[i].length && !now && <p className="stage-placeholder soft">{pending ? "이전 단계 완료 후 표시합니다." : "진행 기록 없음 · 해당 없음"}</p>}

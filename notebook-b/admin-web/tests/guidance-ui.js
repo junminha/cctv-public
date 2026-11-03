@@ -152,8 +152,9 @@ async page => {
   reset(); scenario = 'normal';
   await visit('/');
   await has(guidance(), 'CCTV 4대');
-  await switchTab('/', '도구');
+  await switchTab('/', '분석·보관');
   await detailPanel().locator('input[type=number]').first().fill('200');
+  await detailPanel().getByRole('button', { name: '반경 저장', exact: true }).click();
   await switchTab('/', 'CCTV');
   await has(guidance(), 'CCTV 8대');
   await has(detailPanel(), /분석 당시 (기본 )?반경 100m/);
@@ -191,13 +192,13 @@ async page => {
   await has(guidance(), '두 번째 위치 CCTV');
   await page.waitForTimeout(1000);
   if ((await guidance().innerText()).includes('검증용 사거리 CCTV')) throw new Error('Previous report nearby response leaked');
-  await page.getByRole('button', { name: '자동', exact: true }).click();
+  await page.getByRole('button', { name: '자동 따라가기', exact: true }).click();
   await switchTab('/live', '대응');
   await has(guidance(), '119 신고 여부 확인');
   delayNearby = false;
   reset();
   await visit('/');
-  await page.locator('.score-tag').filter({ hasText: 'cam-02 0.91' }).waitFor({ state: 'visible' });
+  await page.locator('.score-tag').filter({ hasText: 'cam-02 관련 높음' }).waitFor({ state: 'visible' });
   records[first].job = { ...records[first].job, state: 'running', stage: 'SCANNING' };
   records[first].events = [{ type: 'analysis_requested', created_at: '2026-10-23T07:01:00.000Z', message: '분석 요청', data: {} }];
   for (const path of ['/', '/live']) {
@@ -253,7 +254,7 @@ async page => {
         await page.screenshot({ path: `output/playwright/expand-${width}-${path === '/' ? view === '대응' ? 'response' : 'cctv' : 'live'}.png` });
       }
       if (path === '/live') {
-        const tag = page.locator('.log-line .log-tag').filter({ hasText: /^EXPAND$/ });
+        const tag = page.locator('.log-line .log-tag[data-tag="EXPAND"]');
         check(`${width} /live logs radius expansion with EXPAND tag`, await tag.count() === 1);
         check(`${width} /live expansion log uses amber`, await tag.count() === 1 && await tag.evaluate(node => {
           const probe = document.createElement('span'); probe.style.color = 'var(--w-amber)'; node.appendChild(probe);

@@ -9,6 +9,12 @@ export const STAGE_TAG: Record<string, string> = {
   FOCUSED_ANALYSIS: "FOCUS",
   SUMMARIZING: "SUMMARY",
 };
+const MODE_WORDS: Record<string, string> = { selective: "관련 카메라만", all: "모든 카메라", benchmark: "비교 실험" };
+export const TAG_LABEL: Record<string, string> = {
+  RECEIVED: "접수", QUEUE: "대기", ATTACH: "첨부", CLASSIFY: "분류", CANDIDATES: "후보", SCAN: "탐색", FOCUS: "집중",
+  SUMMARY: "요약", VOICE: "음성", PHONE: "사진", DONE: "완료", RERUN: "재분석", WARN: "주의", REVIEW: "처리",
+  EXPAND: "반경 확대", LOG: "대응 기록", LINK: "기관 연결",
+};
 export const TAG_COLOR: Record<string, string> = {
   RECEIVED: "var(--w-text)",
   QUEUE: "var(--w-soft)",
@@ -57,7 +63,7 @@ export function buildLog(detail: ReportDetail): LogLine[] {
       run += 1;
       start = new Date(event.created_at).getTime();
       const p = event.data as Record<string, unknown>;
-      add(event.created_at, "QUEUE", `분석 요청 · ${p.mode ?? "selective"} · ${p.source === "recording" ? "녹화" : "실시간"} ${p.duration ?? 10}초`);
+      add(event.created_at, "QUEUE", `분석 요청 · ${MODE_WORDS[String(p.mode ?? "selective")] ?? p.mode} · ${p.source === "recording" ? "녹화" : "실시간"} ${p.duration ?? 10}초`);
     } else if (event.type === "analysis_rerun") {
       add(event.created_at, "RERUN", "첨부 반영 재분석");
     } else if (event.type === "radius_expanded") {

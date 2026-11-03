@@ -46,6 +46,11 @@ const KST_TIME = new Intl.DateTimeFormat("ko-KR", {
 });
 
 export const kst = (value: string | null | undefined) => (value ? KST.format(new Date(value)) : "—");
+// Plain words for a 0..1 model score; the number stays available in the detail line.
+export const relevanceLabel = (value: number | null | undefined) =>
+  value === null || value === undefined ? "판단 전" : value >= 0.6 ? "높음" : value >= 0.3 ? "보통" : value > 0 ? "낮음" : "없음";
+const KST_DATE = new Intl.DateTimeFormat("ko-KR", { timeZone: "Asia/Seoul", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
+export const kstReadable = (value: string | null | undefined) => (value ? KST_DATE.format(new Date(value)) : "—");
 export const kstTime = (value: string | null | undefined) => (value ? KST_TIME.format(new Date(value)) : "—");
 export const shortId = (id: string) => id.slice(0, 6).toUpperCase();
 export const sourceLabel = (source: string) => (source === "demo" ? "모의 신고" : "시민 신고");
