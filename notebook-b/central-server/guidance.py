@@ -31,7 +31,14 @@ FIT = {
     'ABANDONED_OBJECT': {'주거지 골목': 1.0, '공원·산책로': 0.8, '주차장': 0.8, '버스정류장': 0.6},
     'POTHOLE': {'도로·교차로': 1.0, '버스정류장': 0.6, '주차장': 0.5},
     'SMOKING': {'학교·어린이보호': 1.0, '공원·산책로': 0.9, '버스정류장': 0.9},
+    'ILLEGAL_DUMPING': {'주거지 골목': 1.0, '공원·산책로': 0.8, '주차장': 0.7, '시장·상가': 0.7},
+    'VANDALISM': {'공원·산책로': 1.0, '버스정류장': 0.9, '도로·교차로': 0.7, '학교·어린이보호': 0.7},
+    'FIRE_SMOKE': {'시장·상가': 0.9, '주거지 골목': 0.8, '공원·산책로': 0.7},
+    'SAFETY_THREAT': {'시장·상가': 0.9, '버스정류장': 0.8, '공원·산책로': 0.8, '주거지 골목': 0.8},
 }
+# Checked first whatever the models found; a triage order, not a finding.
+URGENT = {'FALL_SUSPECTED': ('119', '생명·신체 위험 의심 신고는 AI 결과와 관계없이 기존 신고 절차가 먼저입니다.'),
+          'FIRE_SMOKE': ('119', '화재·연기 의심 신고는 AI 결과와 관계없이 기존 신고 절차가 먼저입니다(화재 여부는 현장 확인).')}
 STOPWORDS = {'있어요', '있습니다', '같아요', '보여요', '주세요', '사람', '신고', '앞에', '근처', '여기', '지금'}
 
 
@@ -182,11 +189,11 @@ def plan(report, result):
         steps.append({'action': action, 'reason': reason})
 
     priority = 'normal'
-    if incident == 'FALL_SUSPECTED':
+    if incident in URGENT:
         priority = 'urgent'
-        contacts.append('119')
-        step('신고자에게 119 신고 여부를 확인하고, 하지 않았다면 바로 119에 신고하도록 안내하세요.',
-             '생명·신체 위험 신고는 AI 결과와 관계없이 기존 신고 절차가 먼저입니다.')
+        number, reason = URGENT[incident]
+        contacts.append(number)
+        step(f'신고자에게 {number} 신고 여부를 확인하고, 하지 않았다면 바로 {number}에 신고하도록 안내하세요.', reason)
 
     available = [row for row in result.get('cameras', []) if row.get('status') == 'available']
     if best.get('video'):
@@ -228,6 +235,23 @@ def plan(report, result):
         contacts.append(f'{district or "관할"} 보건소 금연 단속')
         step(f'금연구역인지 확인한 뒤 {district or "관할"} 보건소 금연 단속에 전달하세요.',
              '영상만으로 흡연·규정 위반을 확정할 수 없습니다.')
+    elif incident == 'ILLEGAL_DUMPING':
+        contacts.append(f'{office} 청소·환경 부서')
+        step(f'{office} 청소·환경 부서에 위치({point})와 장면 시각을 전달해 수거·확인을 요청하세요.',
+             '영상만으로 투기 행위자나 위법 여부를 확정하지 않습니다.')
+    elif incident == 'VANDALISM':
+        contacts += [f'{office} 민원 담당', '부산광역시청 담당 부서(시 관리 시설인 경우)']
+        step(f'파손된 시설의 관리 주체를 확인해 {office} 또는 시청 담당 부서에 보수를 요청하세요. 위험하면 접근 금지 안내를 요청하세요.',
+             '파손 원인과 고의 여부는 영상만으로 판단하지 않습니다.')
+    elif incident == 'FIRE_SMOKE':
+        contacts.append('관할 소방서')
+        step(f'웹캠 영상에서 연기·불꽃이 계속 보이는지 확인하고, 현장 인력에게 위치({point})를 전달하세요.',
+             '연기는 조리·증기 등일 수 있어 현장 확인이 필요합니다.')
+    elif incident == 'SAFETY_THREAT':
+        priority = 'high'
+        contacts.append('112(위협이 이어지는 것으로 보일 때)')
+        step('웹캠 영상으로 상황이 이어지는지 확인하고, 위협이 계속되는 것으로 보이면 신고자에게 112 신고 여부를 확인하세요.',
+             '다툼·위협 여부와 가해·피해는 영상만으로 판단하지 않습니다.')
     else:
         step('신고자에게 무엇이 문제인지 추가로 확인하세요.', '사건 유형을 특정하지 못했습니다.')
 
@@ -269,7 +293,7 @@ def alert_state(detail):
     else:
         incident = ((analysis.get('classification') or {}).get('incident_type')
                     or local_classification(detail.get('description', ''), detail.get('details', ''))['incident_type'])
-        priority, basis = ('urgent' if incident == 'FALL_SUSPECTED' else 'normal'), 'keywords'
+        priority, basis = ('urgent' if incident in URGENT else 'normal'), 'keywords'
     logs = [event for event in detail.get('events', []) if event['type'] == 'response_log']
     review = detail.get('review') or {}
     acknowledged = (any(event['data'].get('kind') == 'alert_ack' for event in logs)

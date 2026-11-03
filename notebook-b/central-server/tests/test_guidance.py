@@ -185,3 +185,12 @@ def test_demo_webcams_rank_with_public_cctv_on_the_same_terms(monkeypatch):
     actions = ' '.join(step['action'] for step in plan['steps'])
     assert 'cam-02' in actions and '시연 웹캠' in actions and '관제센터' not in actions
     assert '금정구청 주정차 단속' in plan['contacts']
+
+
+def test_fire_smoke_is_checked_first_but_not_asserted():
+    plan = guidance.plan(REPORT, analysed(classification={'incident_type': 'FIRE_SMOKE'}))
+    assert plan['priority'] == 'urgent' and '119' in plan['steps'][0]['action']
+    assert '화재 여부는 현장 확인' in plan['steps'][0]['reason']
+    assert guidance.alert_state(detail(description='건물에서 연기가 나요'))['priority'] == 'urgent'
+    threat = guidance.plan(REPORT, analysed(classification={'incident_type': 'SAFETY_THREAT'}))
+    assert threat['priority'] == 'high' and any('영상만으로 판단하지 않습니다' in step['reason'] for step in threat['steps'])

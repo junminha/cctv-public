@@ -483,3 +483,32 @@ def test_simulated_send_is_recorded_not_sent(system):
     assert record[0]['data']['message'] == '모의 메시지' and record[0]['data']['simulated'] is True
     # Citizens never see dispatch records.
     assert 'dispatch' not in str(client.get(f'/api/v1/reports/{report_id}', headers=auth(ADMIN)).json())
+
+
+def test_ai_scene_check_finds_what_yolo_cannot_and_selects_that_camera(system):
+    client, _, _ = system
+    intelligence = client.app.state.intelligence
+    seen = []
+
+    def check_scene(incident, description, details, frames):
+        seen.append(incident)
+        visible = len(seen) == 3  # the third camera scanned (cam-03, the empty scene) "shows" the dumping
+        return {'visible': visible, 'confidence': 0.8 if visible else 0.0, 'finding': '골목 바닥의 쓰레기 봉투 더미' if visible else '',
+                'frame': len(frames) - 1, 'source': 'openai:fake', 'warnings': []}
+    intelligence.check_scene = check_scene
+    report_id = report(client, description='골목에 쓰레기 봉투를 무단투기 했어요')
+    analysis = analyze(client, report_id)['analysis']
+    assert analysis['classification']['incident_type'] == 'ILLEGAL_DUMPING'
+    assert seen == ['ILLEGAL_DUMPING'] * 3
+    cameras = {row['camera_id']: row for row in analysis['cameras']}
+    checked = [row['camera_id'] for row in cameras.values() if row['scene_check']['visible']]
+    assert len(checked) == 1 and analysis['selected_camera_ids'] == checked
+    row = cameras[checked[0]]
+    assert row['event_score'] >= 0.8
+    frame = [item for item in row['scan']['evidence'] if item['findings'][0].startswith('AI 장면 확인')]
+    assert frame and client.get(f"/api/v1/admin/reports/{report_id}/artifacts/{frame[0]['path']}",
+                                headers=auth(ADMIN)).status_code == 200
+    assert any(item['finding'].startswith('AI 장면 확인') and item['verified'] is False
+               for item in analysis['summary']['cctv_observations'])
+    # Cameras the model looked at and saw nothing in are not focused, even with people in view.
+    assert all(cameras[camera]['event_score'] == 0 for camera in cameras if camera not in checked)

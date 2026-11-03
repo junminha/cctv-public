@@ -11,6 +11,37 @@ import threading
 import time
 
 PERSON = 0
+
+
+def keyframes(path, count=2, max_seconds=15.0, width=640):
+    """Evenly spaced JPEG frames of a clip for an AI look: [(seconds, jpeg bytes)]. The clip is not modified."""
+    import cv2
+    capture = cv2.VideoCapture(str(path))
+    if not capture.isOpened():
+        raise VisionUnavailable('Video could not be opened for key frames')
+    try:
+        fps = capture.get(cv2.CAP_PROP_FPS) or 0
+        fps = fps if 0 < fps < 240 else 10.0
+        total = int(capture.get(cv2.CAP_PROP_FRAME_COUNT) or 0) or int(max_seconds * fps)
+        last = max(0, min(total - 1, int(max_seconds * fps)))
+        frames = []
+        for target in (int(last * (n + 1) / (count + 1)) for n in range(count)):
+            capture.set(cv2.CAP_PROP_POS_FRAMES, target)
+            ok, image = capture.read()
+            if not ok:
+                continue
+            if image.shape[1] > width:
+                image = cv2.resize(image, (width, round(image.shape[0] * width / image.shape[1])))
+            ok, buffer = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 80])
+            if ok:
+                frames.append((round(target / fps, 2), buffer.tobytes()))
+    finally:
+        capture.release()
+    if not frames:
+        raise VisionUnavailable('No decodable key frames in the clip')
+    return frames
+
+
 VEHICLES = {1: '자전거', 2: '승용차', 3: '오토바이', 5: '버스', 7: '트럭'}
 LABELS = {PERSON: '사람', **VEHICLES}
 

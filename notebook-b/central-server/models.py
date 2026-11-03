@@ -160,7 +160,8 @@ class RadiusInput(BaseModel):
 
 class DispatchInput(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
-    agency: Literal['FIRE_119', 'POLICE_112', 'DISTRICT_OFFICE', 'PUBLIC_HEALTH', 'CCTV_CENTER']
+    agency: Literal['FIRE_119', 'FIRE_STATION', 'POLICE_112', 'POLICE_STATION', 'CITY_HALL', 'DISTRICT_OFFICE',
+                    'DISTRICT_ROAD', 'DISTRICT_CLEAN', 'DISTRICT_PARKING', 'PUBLIC_HEALTH', 'CCTV_CENTER']
     message: str = Field(min_length=1, max_length=1000)
 
 

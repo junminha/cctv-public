@@ -18,7 +18,8 @@ from evidence import report_lock, safe_path
 import guidance
 from media import capture_live
 from models import DEMO_CAMERA_IDS, AnalyzeInput, PreserveInput, utc
-from vision import VisionUnavailable
+from intelligence import INCIDENT_LABELS, SCENE_TYPES
+from vision import VisionUnavailable, keyframes
 
 RECORDING_LAG_SECONDS = 70  # A lists only finalized 60 s segments.
 EXPAND_STEP_M = 100  # Design doc 6.2: widen 100 -> 200 -> 300 m when the radius has no camera.
@@ -123,7 +124,7 @@ class Pipeline:
             result['outcome'] = ('RECORDING_UNAVAILABLE' if params.source == 'recording' else 'CAMERA_UNAVAILABLE')
             result['summary'] = self._summary(report, incident, [], images, transcripts, result)
             return
-        focus = {}
+        focus, scenes = {}, {}
         if params.mode in ('selective', 'benchmark'):
             stage('SCANNING', 0.35)
             scan_started = time.monotonic()
@@ -131,6 +132,7 @@ class Pipeline:
                 row['scan'] = compact(self.vision.analyze_clip(
                     clips[row['camera_id']], folder / 'scan' / row['camera_id'], sample_fps=params.sample_fps,
                     max_seconds=params.duration, incident_type=incident))
+                self._scene(report, incident, clips[row['camera_id']], row, 'scan', folder, params, result, scenes)
                 row['event_score'] = row['scan']['relevance_score']
                 row['rank_score'] = self._rank(searched, row)
             scan_seconds = time.monotonic() - scan_started
@@ -156,6 +158,7 @@ class Pipeline:
                 row['all'] = compact(self.vision.analyze_clip(
                     clips[row['camera_id']], folder / 'all' / row['camera_id'], sample_fps=params.focus_fps,
                     max_seconds=params.duration, incident_type=incident))
+                self._scene(report, incident, clips[row['camera_id']], row, 'all', folder, params, result, scenes)
             ranked_all = sorted(available, key=lambda item: -item['all']['relevance_score'])
             all_selected = [row['camera_id'] for row in ranked_all if row['all']['relevance_score'] > 0][:params.top_k]
             full = {'frames': sum(row['all']['processed_frames'] for row in available),
@@ -184,10 +187,60 @@ class Pipeline:
             for evidence in analysis['evidence'][:2]:
                 evidence['path'] = f"{kind}/{row['camera_id']}/{evidence['file']}"
                 evidence_images.append(folder / evidence['path'])
+            # The AI scene look was taken on the scan clip; carry it into the selected camera's observations.
+            check = row.get('scene_check') or {}
+            if kind == 'focus' and check.get('visible'):
+                seconds = check.get('timestamp_seconds')
+                observations.append({'finding': 'AI 장면 확인: ' + check['finding'], 'kind': 'scene_check',
+                                     'verified': False, 'camera_id': row['camera_id'], 'timestamp_seconds': seconds,
+                                     'timestamp': utc(window_start + timedelta(seconds=seconds)) if seconds is not None else None})
+                evidence_images += [folder / item['path'] for item in row['scan']['evidence']
+                                    if item.get('path') and item['findings'][:1] and item['findings'][0].startswith('AI 장면 확인')]
         result['outcome'] = 'REVIEW_REQUIRED' if result['selected_camera_ids'] else 'VIDEO_NOT_VISIBLE'
         stage('SUMMARIZING', 0.85)
         result['summary'] = self._summary(report, incident, observations, evidence_images + images,
                                           transcripts, result)
+
+    def _scene(self, report, incident, clip, row, kind, folder, params, result, scenes):
+        """For situations YOLO cannot see (dumping, smoking, damage, smoke…), ask the model about two key frames."""
+        if incident not in SCENE_TYPES:
+            return
+        camera = row['camera_id']
+        if camera not in scenes:
+            try:
+                frames = keyframes(clip, 2, params.duration)
+            except VisionUnavailable as exc:
+                result['warnings'].append(f'{camera} AI 장면 확인용 장면 추출 실패: {exc}')
+                scenes[camera] = None
+                return
+            check = self.intelligence.check_scene(incident, report.get('description', ''), report.get('details', ''), frames)
+            for warning in check.get('warnings', []):
+                if warning not in result['warnings']:
+                    result['warnings'].append(warning)
+            frame = frames[check['frame']] if check['visible'] else None
+            row['scene_check'] = {'visible': check['visible'], 'confidence': round(check['confidence'], 3),
+                                  'finding': check['finding'], 'source': check['source'],
+                                  'timestamp_seconds': frame[0] if frame else None}
+            scenes[camera] = frame
+        frame = scenes.get(camera)
+        check = row.get('scene_check') or {}
+        analysis = row[kind]
+        # People or cars in view say nothing about dumping, smoking or damage: once the model has looked,
+        # its answer alone is the relevance. Without a key (or on failure) the YOLO score stays.
+        if check.get('source', 'unavailable') != 'unavailable':
+            analysis['relevance_score'] = round(check['confidence'], 4) if check.get('visible') else 0.0
+        if not frame or not check.get('visible'):
+            return
+        finding = 'AI 장면 확인: ' + (check['finding'] or INCIDENT_LABELS.get(incident, incident) + ' 관련 장면 후보')
+        analysis['observations'].append({'finding': finding, 'kind': 'scene_check', 'verified': False,
+                                         'timestamp_seconds': frame[0]})
+        if len(analysis['evidence']) < 3:
+            name = f"evidence-{len(analysis['evidence']) + 1:02d}.jpg"
+            target = folder / kind / camera / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(frame[1])
+            analysis['evidence'].append({'file': name, 'timestamp_seconds': frame[0], 'findings': [finding],
+                                         'path': f'{kind}/{camera}/{name}'})
 
     def _search(self, report, params):
         base = report['radius_m']

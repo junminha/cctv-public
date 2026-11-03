@@ -352,3 +352,23 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
   실제 네트워크 전송·첨부·영상 전달은 하지 않는다. 기록은 신고 이벤트·증거 ZIP에 포함된다. 신고자 화면에는 보이지 않는다.
 - 추천은 참고용이며 전송(모의) 여부는 담당자가 정한다.
 - 관리자 WebSocket 스냅샷 신고 항목에 `dispatches`(모의 전송 기록 수) 추가.
+
+## B 사건 유형·기관 확대와 AI 장면 확인 (v0.11)
+
+사용자 결정(2026-11-03): 다양한 생활 불편 사항을 다루고, 상황에 맞는 기관을 고른다. **시스템은 신고를 긴급·범죄 상황으로 단정하지 않는다.**
+분류·관찰·대응 문구는 "~의심", "~신고", "확인 필요"로 쓴다. 우선순위(urgent/high/normal)는 확인 순서일 뿐 사실 판단이 아니다.
+
+- 사건 유형(`incident_type`) 확대: `FALL_SUSPECTED`(쓰러짐 의심), `VEHICLE_OBSTRUCTION`(차량 통행 불편), `ABANDONED_OBJECT`(방치물),
+  `ILLEGAL_DUMPING`(쓰레기 무단투기 의심), `SMOKING`(흡연 의심), `POTHOLE`(도로 파손), `VANDALISM`(공공시설물 파손 의심),
+  `FIRE_SMOKE`(화재·연기 의심), `SAFETY_THREAT`(다툼·위협 의심), `OTHER`(기타 불편 사항). 키 없음일 때 키워드 규칙도 같은 목록.
+- 기관(`agency`) 확대: `FIRE_119`, `FIRE_STATION`(관할 소방서), `POLICE_112`, `POLICE_STATION`({구·군} 관할 경찰서),
+  `CITY_HALL`(부산광역시청 담당 부서), `DISTRICT_OFFICE`({구·군}청 민원 담당), `DISTRICT_ROAD`({구·군}청 도로 관리),
+  `DISTRICT_CLEAN`({구·군}청 청소·환경), `DISTRICT_PARKING`({구·군}청 주정차 단속), `PUBLIC_HEALTH`({구·군} 보건소), `CCTV_CENTER`.
+  GPT는 이 목록 안에서 상황에 맞게 1~3곳을 고른다. 쓰러짐 의심은 119, 화재·연기 의심은 119를 항상 포함한다.
+- **AI 장면 확인**: YOLO(사람·차량)로 찾을 수 없는 유형(`ABANDONED_OBJECT`, `ILLEGAL_DUMPING`, `SMOKING`, `POTHOLE`, `VANDALISM`,
+  `FIRE_SMOKE`, `SAFETY_THREAT`, `OTHER`)은 저FPS 탐색 뒤 영상을 받은 웹캠마다 대표 장면 2장을 저해상도로 OpenAI 이미지 분석에 보내
+  신고 내용이 보이는지만 묻는다. 결과 `cameras[].scene_check{visible,confidence,finding,timestamp_seconds,source}`.
+  AI 확인이 실제로 된 카메라는 그 결과만 관련성으로 쓴다(보이면 `event_score = confidence`, 안 보이면 0 — 사람·차량이 보이는 것은
+  투기·흡연·파손의 근거가 아니다). 보이면 그 장면을 `scan.evidence`(evidence-0N.jpg, findings "AI 장면 확인: …")와
+  관찰(`kind=scene_check`, `verified=false`)에 넣는다. OpenAI 키가 없거나 실패하면 YOLO 결과만 쓰고 경고를 남긴다.
+  공개 CCTV 영상은 대상이 아니다(웹캠만).

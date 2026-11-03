@@ -1,12 +1,17 @@
 // Korean operator vocabulary for B states. Keep names identical across the whole UI.
 
+// Reported situations are suspicions or inconveniences to check, never established emergencies or crimes.
 export const INCIDENT: Record<string, string> = {
   FALL_SUSPECTED: "쓰러짐 의심",
-  VEHICLE_OBSTRUCTION: "차량 통행 장애",
-  ABANDONED_OBJECT: "방치 물체",
+  VEHICLE_OBSTRUCTION: "차량 통행 불편",
+  ABANDONED_OBJECT: "방치물",
+  ILLEGAL_DUMPING: "쓰레기 무단투기 의심",
+  SMOKING: "흡연 의심",
   POTHOLE: "도로 파손",
-  SMOKING: "흡연 신고",
-  OTHER: "기타",
+  VANDALISM: "공공시설물 파손 의심",
+  FIRE_SMOKE: "화재·연기 의심",
+  SAFETY_THREAT: "다툼·위협 의심",
+  OTHER: "기타 불편 사항",
 };
 
 export const STAGES = [
