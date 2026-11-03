@@ -333,3 +333,22 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 - 대응 방안: 1위가 웹캠이면 "그 웹캠 영상·근거 프레임 확인" 단계를, 공개 CCTV면 기존 "관할 관제센터 정식 열람 요청" 단계를 쓴다.
   관할 기관 이름은 순위 안 첫 공개 CCTV의 구·군에서 정한다.
 - 영상 분석은 계속 시연 웹캠만 한다. 공개 CCTV 영상은 열람·분석하지 않는다. `nearby.webcams`(웹캠 목록)는 그대로 둔다.
+
+## B 기관 모의 연결 (v0.10)
+
+사용자 결정(2026-11-03): 실제 기관(112·119·구청 등)으로는 아무것도 보내지 않는다. 시연용으로 연결 대상 추천과 **모의 전송 기록**만 만든다.
+
+| 메서드 | 경로 | 권한 / 동작 |
+|---|---|---|
+| POST | `/api/v1/admin/reports/{id}/dispatch/recommend` | 관리자, 연결 대상 추천 `{agencies[],source,warnings[],district}` (기록 없음) |
+| POST | `/api/v1/admin/reports/{id}/dispatch` | 관리자, `{agency,message}` 모의 전송 기록. 201 기록. 이벤트 `dispatch_simulated`, 감사 `dispatch_simulated` |
+
+- 기관 종류(`agency`)는 고정 목록: `FIRE_119`(119 종합상황실), `POLICE_112`(112 치안종합상황실), `DISTRICT_OFFICE`({구·군}청 담당 부서),
+  `PUBLIC_HEALTH`({구·군} 보건소), `CCTV_CENTER`({구·군} CCTV 통합관제센터). 구·군은 분석 결과의 반경 CCTV 순위에서 첫 공개 CCTV의 구·군
+  (없으면 "관할 구·군").
+- 추천 `agencies[]`: `{agency,name,reason,message}` 최대 3개. OpenAI 키가 있으면 GPT가 신고문·분석 요약·대응 방안을 보고 위 목록 안에서만 고르고
+  (`source=openai:{model}`), 없거나 실패하면 사건 유형 규칙(`source=local_rules`). 쓰러짐 의심은 항상 `FIRE_119`를 포함한다.
+- 모의 전송 본문 `message` 1~1000자. 전송 기록 data: `{agency,name,message,by,simulated:true}`. 이벤트 메시지 "{기관명} 모의 전송".
+  실제 네트워크 전송·첨부·영상 전달은 하지 않는다. 기록은 신고 이벤트·증거 ZIP에 포함된다. 신고자 화면에는 보이지 않는다.
+- 추천은 참고용이며 전송(모의) 여부는 담당자가 정한다.
+- 관리자 WebSocket 스냅샷 신고 항목에 `dispatches`(모의 전송 기록 수) 추가.

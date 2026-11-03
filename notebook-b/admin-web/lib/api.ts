@@ -54,6 +54,7 @@ export type ReportSummary = {
   priority_basis?: "analysis" | "keywords";
   alert_acknowledged?: boolean;
   response_logs?: number;
+  dispatches?: number;
 };
 
 export type Review = {

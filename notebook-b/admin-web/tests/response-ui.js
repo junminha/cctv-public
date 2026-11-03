@@ -122,7 +122,7 @@ async page => {
     check(`${w} logged step shows time and actor`, await panel().locator('.guidance-logged').count() === 1
       && (await panel().locator('.guidance-logged').innerText()).includes('admin'));
     await tab('대응').focus();
-    for (const [key, expected] of [['ArrowRight', 'CCTV'], ['ArrowRight', '신고 내용'], ['ArrowRight', '도구'],
+    for (const [key, expected] of [['ArrowRight', 'CCTV'], ['ArrowRight', '신고 내용'], ['ArrowRight', '기관 연결'], ['ArrowRight', '도구'],
       ['ArrowRight', '대응'], ['ArrowLeft', '도구'], ['Home', '대응'], ['End', '도구']]) {
       await page.keyboard.press(key);
       await selectedTab(expected);

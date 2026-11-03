@@ -158,6 +158,12 @@ class RadiusInput(BaseModel):
     radius_m: float = Field(ge=1, le=5000, allow_inf_nan=False)
 
 
+class DispatchInput(BaseModel):
+    model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
+    agency: Literal['FIRE_119', 'POLICE_112', 'DISTRICT_OFFICE', 'PUBLIC_HEALTH', 'CCTV_CENTER']
+    message: str = Field(min_length=1, max_length=1000)
+
+
 class ResponseLogInput(BaseModel):
     model_config = ConfigDict(extra='forbid', str_strip_whitespace=True)
     kind: Literal['step', 'note', 'alert_ack']

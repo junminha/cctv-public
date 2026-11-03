@@ -27,12 +27,13 @@ from clips import Clips
 from exports import KST, build_manifest, report_package, reports_csv
 from evidence import (HEADERS, Evidence, analysis_busy, ensure_version, range_served, report_lock,
                       safe_path, verify_file)
+import dispatch
 import guidance
 from intelligence import Intelligence, local_classification
 from media import snapshot as capture_snapshot
 import media as media_tools
 from models import (AnalyzeInput, CameraId, CredentialsInput, DEMO_CAMERA_IDS, LocationInput, PasswordResetInput,
-                    PreserveInput, RadiusInput, ReportInput, ResponseLogInput, ReviewInput, Username, UtcDatetime, utc)
+                    DispatchInput, PreserveInput, RadiusInput, ReportInput, ResponseLogInput, ReviewInput, Username, UtcDatetime, utc)
 from public_catalog import list_cameras as public_cameras
 from store import Store
 from vision import VisionEngine
@@ -315,6 +316,26 @@ def create_app(settings, adapter_http=None, vision=None, intelligence=None):
                 raise HTTPException(409, 'No such recommended step in the latest analysis')
             text = text or steps[payload.step]['action']
         return app.state.store.log_response(report_id, identity['subject'], payload.kind, payload.step, text)
+
+    @app.post('/api/v1/admin/reports/{report_id}/dispatch/recommend', dependencies=[Depends(admin)])
+    def dispatch_recommend(report_id: str):
+        detail = app.state.store.detail(report_id)
+        if detail is None:
+            raise HTTPException(404, 'Report not found')
+        return app.state.intelligence.recommend_agencies(detail, detail.get('analysis'))
+
+    @app.post('/api/v1/admin/reports/{report_id}/dispatch', status_code=201)
+    def dispatch_simulated(report_id: str, payload: DispatchInput, identity: Annotated[dict, Depends(admin)]):
+        """Demo only: records that a message would have been sent. No network call, no media."""
+        detail = app.state.store.detail(report_id)
+        if detail is None:
+            raise HTTPException(404, 'Report not found')
+        name = dispatch.name_of(payload.agency, dispatch.district_of(detail.get('analysis')))
+        record = {'agency': payload.agency, 'name': name, 'message': payload.message, 'by': identity['subject'],
+                  'simulated': True}
+        app.state.store.event(report_id, 'dispatch_simulated', f'{name} 모의 전송', record)
+        app.state.store.audit('dispatch_simulated', identity['subject'], report_id, payload.agency)
+        return {**record, 'created_at': utc(), 'message_title': f'{name} 모의 전송'}
 
     @app.post('/api/v1/admin/reports/{report_id}/close')
     def close(report_id: str, payload: ReviewInput, identity: Annotated[dict, Depends(admin)]):

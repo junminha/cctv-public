@@ -463,3 +463,23 @@ def test_response_log_handling_status_and_incident_metrics(system):
     metrics = client.get('/api/v1/admin/metrics', headers=auth(ADMIN)).json()
     fall = metrics['by_incident']['FALL_SUSPECTED']
     assert fall['count'] == 1 and fall['review_required'] == 1 and fall['mean_frames'] > 0
+
+
+def test_simulated_send_is_recorded_not_sent(system):
+    client, _, _ = system
+    report_id = report(client)
+    analyze(client, report_id)
+    recommended = client.post(f'/api/v1/admin/reports/{report_id}/dispatch/recommend', headers=auth(ADMIN))
+    assert recommended.status_code == 200 and recommended.json()['agencies'][0]['agency'] == 'FIRE_119'
+    path = f'/api/v1/admin/reports/{report_id}/dispatch'
+    assert client.post(path, headers=auth(REPORTER), json={'agency': 'FIRE_119', 'message': 'x'}).status_code == 403
+    assert client.post(path, headers=auth(ADMIN), json={'agency': 'FBI', 'message': 'x'}).status_code == 422
+    assert client.post(path, headers=auth(ADMIN), json={'agency': 'FIRE_119', 'message': ''}).status_code == 422
+    sent = client.post(path, headers=auth(ADMIN), json={'agency': 'FIRE_119', 'message': '모의 메시지'})
+    assert sent.status_code == 201 and sent.json()['simulated'] is True and sent.json()['name'] == '119 종합상황실'
+    events = client.get(f'/api/v1/admin/reports/{report_id}', headers=auth(ADMIN)).json()['events']
+    record = [event for event in events if event['type'] == 'dispatch_simulated']
+    assert len(record) == 1 and record[0]['message'] == '119 종합상황실 모의 전송'
+    assert record[0]['data']['message'] == '모의 메시지' and record[0]['data']['simulated'] is True
+    # Citizens never see dispatch records.
+    assert 'dispatch' not in str(client.get(f'/api/v1/reports/{report_id}', headers=auth(ADMIN)).json())

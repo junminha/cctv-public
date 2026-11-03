@@ -141,12 +141,13 @@ def detail(**changes):
 
 def test_fall_report_is_urgent_at_intake_before_any_analysis():
     state = guidance.alert_state(detail())
-    assert state == {'priority': 'urgent', 'priority_basis': 'keywords', 'alert_acknowledged': False, 'response_logs': 0}
+    assert state == {'priority': 'urgent', 'priority_basis': 'keywords', 'alert_acknowledged': False, 'response_logs': 0,
+                     'dispatches': 0}
     assert guidance.alert_state(detail(description='주차장에 차가 오래 서 있어요'))['priority'] == 'normal'
     analysed_ = detail(analysis={'response_plan': {'priority': 'high'}},
                        events=[{'type': 'response_log', 'created_at': 'x', 'data': {'kind': 'alert_ack'}}])
     assert guidance.alert_state(analysed_) == {'priority': 'high', 'priority_basis': 'analysis',
-                                              'alert_acknowledged': True, 'response_logs': 1}
+                                              'alert_acknowledged': True, 'response_logs': 1, 'dispatches': 0}
     assert guidance.alert_state(detail(review={'confirmed_at': 'x'}))['alert_acknowledged'] is True
 
 

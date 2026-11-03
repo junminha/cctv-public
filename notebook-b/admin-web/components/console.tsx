@@ -34,7 +34,7 @@ export function Console() {
   const mapSelected = selected ? { ...selected, selected_camera_ids: currentAnalysis?.selected_camera_ids ?? [],
     radius_m: preview?.id === selected.report_id ? preview.radius : selected.radius_m } : null;
   // Refetch the full detail whenever the live job state for the selected report changes.
-  const jobKey = selected ? `${selected.job.state}:${selected.job.stage}:${selected.job.progress}:${selected.review?.closed_at}:${selected.response_logs ?? 0}:${selected.alert_acknowledged}` : "";
+  const jobKey = selected ? `${selected.job.state}:${selected.job.stage}:${selected.job.progress}:${selected.review?.closed_at}:${selected.response_logs ?? 0}:${selected.dispatches ?? 0}:${selected.alert_acknowledged}` : "";
 
   useEffect(() => {
     if (!selectedId) return;

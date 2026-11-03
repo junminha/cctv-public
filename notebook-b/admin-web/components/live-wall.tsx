@@ -266,7 +266,7 @@ export function LiveWall() {
   const reports = useMemo(() => byUrgency([...(snapshot?.reports ?? [])].sort((a, b) => b.created_at.localeCompare(a.created_at))), [snapshot]);
   const auto = reports.find(r => r.job.state === "running") ?? reports.find(r => r.job.state === "queued" && r.job.params) ?? reports[0] ?? null;
   const focus = (pinned && reports.find(r => r.report_id === pinned)) || auto;
-  const focusKey = focus ? `${focus.report_id}:${focus.radius_m}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}:${focus.response_logs ?? 0}:${focus.review?.confirmed_at}:${focus.review?.closed_at}:${focus.job.error}` : "";
+  const focusKey = focus ? `${focus.report_id}:${focus.radius_m}:${focus.job.state}:${focus.job.stage}:${focus.job.progress}:${focus.response_logs ?? 0}:${focus.dispatches ?? 0}:${focus.review?.confirmed_at}:${focus.review?.closed_at}:${focus.job.error}` : "";
   // A rerun can return to the same completed key. Discard the old detail on every transition.
   if (detailResult.key !== focusKey) setDetailResult({ key: focusKey, data: null });
   useEffect(() => {

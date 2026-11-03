@@ -35,6 +35,19 @@ class Observation(BaseModel):
     finding: str
 
 
+AgencyType = Literal['FIRE_119', 'POLICE_112', 'DISTRICT_OFFICE', 'PUBLIC_HEALTH', 'CCTV_CENTER']
+
+
+class AgencyPick(BaseModel):
+    agency: AgencyType
+    reason: str = Field(max_length=300)
+    message: str = Field(max_length=1000)
+
+
+class AgencyPlan(BaseModel):
+    agencies: list[AgencyPick] = Field(max_length=3)
+
+
 class Summary(BaseModel):
     incident_type: IncidentType
     reporter_claim: str
@@ -99,6 +112,31 @@ class Intelligence:
                     'warnings': ['자동 전사는 오인식될 수 있습니다.']}
         except Exception as exc:  # noqa: BLE001
             return {'text': '', 'source': 'unavailable', 'warnings': [self._failure(exc)]}
+
+    def recommend_agencies(self, report, analysis):
+        """Pick who a person might contact (demo only, nothing is sent). Falls back to incident rules."""
+        import dispatch
+        local = dispatch.local_recommend(report, analysis)
+        if not self.available:
+            return {**local, 'warnings': ['OpenAI 키가 없어 사건 유형 규칙으로 추천했습니다.']}
+        options = '\n'.join(f'- {key}: {name.format(district=local["district"])} ({role})'
+                            for key, (name, role) in dispatch.AGENCIES.items())
+        plan = (analysis or {}).get('response_plan') or {}
+        try:
+            response = self.client.responses.parse(
+                model=self.model, instructions=SYSTEM, text_format=AgencyPlan,
+                input='아래 신고를 보고 담당자가 연락할 기관을 아래 목록에서만 1~3곳 고르고, 기관별 이유와 보낼 메시지 초안을 쓰세요. '
+                      '시연용 모의 연결이며 실제로 전송되지 않습니다. 출동 여부를 확정하지 말고, 관찰과 미확인 사항을 구분하세요.\n'
+                      f'<기관 목록>\n{options}\n</기관 목록>\n<신고 요약>\n{dispatch.brief(report, analysis)}\n</신고 요약>\n'
+                      f'<규칙 기반 대응 단계>{[step["action"] for step in plan.get("steps", [])][:5]}</규칙 기반 대응 단계>')
+            parsed = response.output_parsed
+            if parsed is None or not parsed.agencies:
+                raise ValueError('empty structured output')
+            picked = {'agencies': [row.model_dump() for row in parsed.agencies], 'source': 'openai:' + self.model,
+                      'warnings': [], 'district': local['district']}
+        except Exception as exc:  # noqa: BLE001 - any API/network/schema failure falls back locally
+            return {**local, 'warnings': [self._failure(exc)]}
+        return dispatch.finish(picked, report, analysis)
 
     def summarize(self, report, observations, image_paths=None, transcripts=None):
         local = self.local_summary(report, observations, transcripts)

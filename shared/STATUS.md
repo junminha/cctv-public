@@ -1,5 +1,17 @@
 # 협업 인수인계
 
+## 2026-11-03 기관 모의 연결 (`work/b-app`)
+
+- 사용자 결정: 실제 기관으로는 아무것도 보내지 않고, GPT가 연결할 기관을 판단하고 전송 기록만 보여주는 모의 연결. 계약 `shared/API.md` v0.10.
+- B: `POST .../dispatch/recommend`(GPT가 고정 목록 119·112·구청·보건소·CCTV 관제센터 안에서 1~3곳과 이유·메시지 초안 선택,
+  키 없음·실패 시 사건 유형 규칙, 쓰러짐 의심은 항상 119 포함), `POST .../dispatch`(담당자가 누른 모의 전송을 이벤트·감사로 기록).
+  네트워크 전송·첨부·영상 전달 없음. 스냅샷에 `dispatches` 수.
+- 관리자 상세 "기관 연결" 탭: 시연용 안내, 추천 받기, 기관별 이유·수정 가능한 메시지·모의 전송, 전송 기록. `/live` 로그에 `LINK` 줄.
+- 실제 검증: B `python -m pytest -q` → **166 passed, 1 skipped**. admin-web tsc·build 통과, eslint 오류 0.
+  Playwright(**합성 응답 검사**): response-ui 109/109(탭 순서에 기관 연결 반영), guidance-ui 55/55, evidence-ui 29/29, live-wall-ui 168/168,
+  기관 연결 탭 추천→모의 전송→기록·`/live` LINK 확인. 실제 B에서 GPT 추천 1회(`openai:gpt-6-luna`, 기록 없음) 확인.
+- 기관 연결 엔드포인트 테스트가 `test_dispatch.py`에서 영상 분석 픽스처를 빌려 쓰면 이후 `test_server` 한 건이 멈춰서 `test_pipeline.py`로 옮겼다.
+
 ## 2026-11-03 시연 웹캠을 반경 CCTV 순위에 포함 (`work/b-app`)
 
 - 사용자 결정: 분석 승인된 시연 웹캠도 부산 공개 CCTV와 같은 조건으로 반경 CCTV 개수·적합도 순위·가장 적합한 CCTV·대응 방안에 넣는다.

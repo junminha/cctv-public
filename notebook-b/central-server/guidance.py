@@ -275,7 +275,8 @@ def alert_state(detail):
     acknowledged = (any(event['data'].get('kind') == 'alert_ack' for event in logs)
                     or bool(review.get('confirmed_at') or review.get('closed_at')))
     return {'priority': priority, 'priority_basis': basis, 'alert_acknowledged': acknowledged,
-            'response_logs': len(logs)}
+            'response_logs': len(logs),
+            'dispatches': sum(event['type'] == 'dispatch_simulated' for event in detail.get('events', []))}
 
 
 HANDLING = {'received': '접수됨', 'analyzing': '분석 중', 'analyzed': '분석 완료 · 담당자 검토 대기',

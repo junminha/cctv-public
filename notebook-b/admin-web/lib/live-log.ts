@@ -26,6 +26,7 @@ export const TAG_COLOR: Record<string, string> = {
   WARN: "var(--w-amber)",
   REVIEW: "var(--w-text)",
   LOG: "var(--w-tide)",
+  LINK: "var(--w-amber)",
 };
 
 export type LogLine = { at: string; offset: number | null; tag: string; text: string; stage: number; run: number };
@@ -81,6 +82,8 @@ export function buildLog(detail: ReportDetail): LogLine[] {
       }
       for (const warning of fresh?.warnings ?? []) add(event.created_at, "WARN", warning);
       add(event.created_at, "DONE", `${outcome}${latency}`);
+    } else if (event.type === "dispatch_simulated") {
+      add(event.created_at, "LINK", `${event.message} (시연용 · 실제 전송 없음)`);
     } else if (event.type === "response_log") {
       add(event.created_at, "LOG", `${event.message}${event.data.text ? ` · ${String(event.data.text)}` : ""}`);
     } else if (event.type === "confirmed" || event.type === "closed") {

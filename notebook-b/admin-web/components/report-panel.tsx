@@ -5,6 +5,7 @@ import { api, bPath, type AnalysisCamera, type AnalyzeParams, type Camera, type 
 import { INCIDENT, kst, kstTime, OUTCOME, shortId, sourceLabel, sourceLabelAI, STAGES } from "@/lib/labels";
 import { ReportGuidance } from "./report-guidance";
 import { ConsoleTabs } from "./console-tabs";
+import { DispatchPanel } from "./dispatch-panel";
 import { EvidenceList, EvidenceStatus, EvidenceViewer, useEvidence, type EvidenceItem } from "./evidence-viewer";
 
 const DEFAULTS: AnalyzeParams = { mode: "selective", source: "live", duration: 10, sample_fps: 1, focus_fps: 3, top_k: 1, expand_steps: 2 };
@@ -72,7 +73,7 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
   const lastRun = detail.events.map((event) => event.type).lastIndexOf("analysis_requested");
   const analysis = storedAnalysis && !running && live.job.state !== "queued" && (lastRun < 0 || Date.parse(storedAnalysis.started_at) >= Date.parse(detail.events[lastRun].created_at)) ? storedAnalysis : null;
   const summary = analysis?.summary;
-  const [tab, setTab] = useState<"response" | "cctv" | "report" | "tools">("response");
+  const [tab, setTab] = useState<"response" | "cctv" | "report" | "dispatch" | "tools">("response");
   const priority = analysis?.response_plan?.priority ?? live.priority;
   const priorityLabel = priority === "urgent" ? "긴급" : priority === "high" ? "높음" : "보통";
   const outcome = live.job.state === "completed" || live.job.state === "failed" ? OUTCOME[live.job.stage] : null;
@@ -157,7 +158,7 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         </div>
       </div>
       <ConsoleTabs label="신고 상세 탭" value={tab} onChange={setTab} items={[
-        { id: "response", label: "대응" }, { id: "cctv", label: "CCTV" }, { id: "report", label: "신고 내용" }, { id: "tools", label: "도구" },
+        { id: "response", label: "대응" }, { id: "cctv", label: "CCTV" }, { id: "report", label: "신고 내용" }, { id: "dispatch", label: "기관 연결" }, { id: "tools", label: "도구" },
       ]}>
         {live.job.error && <p role="alert" className="panel-alert">{outcome?.label ?? "분석 실패"} · {live.job.error}</p>}
         {analysis?.warnings?.length ? <ul role="alert" className="panel-alert">{analysis.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul> : null}
@@ -243,6 +244,9 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
       )}
 
 
+        </div>
+        <div hidden={tab !== "dispatch"}>
+          <DispatchPanel key={detail.report_id} reportId={detail.report_id} events={detail.events} onSent={onChanged} />
         </div>
         <div hidden={tab !== "tools"}>
 <Section title="검색 반경">        <div className="mt-3 border border-rule px-3 py-2">
