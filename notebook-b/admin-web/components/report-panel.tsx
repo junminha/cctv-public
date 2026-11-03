@@ -312,7 +312,7 @@ export function ReportPanel({ detail, live, cameras, onChanged, onRadiusPreview 
         </Section>
       )}
 
-      <Section title="사건 영상 보존" aside="A 원본 녹화의 remux 사본 · SHA256 기록">
+      <Section title="사건 영상 보존" aside="원본 녹화의 remux 사본 · SHA256 기록">
         {preservable.length ? preservable.map((row) => (
           <button key={row.camera_id} disabled={busy !== ""}
             onClick={() => act("preserve", () => api(`/api/v1/admin/reports/${detail.report_id}/preserve`, { method: "POST", json: { camera_id: row.camera_id, start: row.window!.start, duration: row.window!.duration } }), "보존했습니다.")}

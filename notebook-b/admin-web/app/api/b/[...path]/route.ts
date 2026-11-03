@@ -36,7 +36,7 @@ async function forward(request: NextRequest, ctx: RouteContext<"/api/b/[...path]
       ...(hasBody ? { duplex: "half" } : {}),
     } as RequestInit);
   } catch {
-    return NextResponse.json({ detail: "B 중앙 서버에 연결할 수 없습니다." }, { status: 503, headers: PRIVATE });
+    return NextResponse.json({ detail: "중앙 서버에 연결할 수 없습니다." }, { status: 503, headers: PRIVATE });
   }
   const out = new Headers();
   for (const name of PASS_RESPONSE) {

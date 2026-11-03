@@ -20,7 +20,7 @@ export function ConsoleNav() {
             key={link.href}
             href={link.href}
             aria-current={active ? "page" : undefined}
-            className={`rounded px-3 py-1.5 ${active ? "bg-ink text-white" : "text-ink-soft hover:bg-chart"}`}
+            className={`px-3 py-1.5 ${active ? "bg-ink text-white" : "text-ink-soft hover:bg-chart hover:text-ink"}`}
           >
             {link.label}
           </Link>

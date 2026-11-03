@@ -128,7 +128,7 @@ export function MetricsBoard() {
     <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">
       <h1 className="font-display text-3xl">성능 비교</h1>
       <p className="mt-1 max-w-2xl text-sm text-ink-soft">
-        이 화면의 숫자는 이 B 서버에서 실제로 처리한 신고의 측정값입니다. 합성 영상이나 연출 영상의 결과는 실제 현장 성능이 아닙니다.
+        이 화면의 숫자는 이 서버에서 실제로 처리한 신고의 측정값입니다. 합성 영상이나 연출 영상의 결과는 실제 현장 성능이 아닙니다.
       </p>
 
       <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">

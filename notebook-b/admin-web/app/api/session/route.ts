@@ -17,13 +17,13 @@ export async function POST(request: NextRequest) {
     });
     status = check.status;
   } catch {
-    return NextResponse.json({ detail: "B 중앙 서버(127.0.0.1:8000)에 연결할 수 없습니다. start.ps1로 서버를 먼저 실행하세요." }, { status: 503 });
+    return NextResponse.json({ detail: "중앙 서버(127.0.0.1:8000)에 연결할 수 없습니다. start.ps1로 서버를 먼저 실행하세요." }, { status: 503 });
   }
   if (status === 401 || status === 403) {
     return NextResponse.json({ detail: "관리자 토큰이 아닙니다. runtime/secrets.json의 admin 토큰을 사용하세요." }, { status: 401 });
   }
   if (status !== 200) {
-    return NextResponse.json({ detail: `B 서버 응답 오류 (${status})` }, { status: 502 });
+    return NextResponse.json({ detail: `중앙 서버 응답 오류 (${status})` }, { status: 502 });
   }
   const response = NextResponse.json({ ok: true });
   response.cookies.set(sessionCookie(token, request.nextUrl.protocol === "https:"));

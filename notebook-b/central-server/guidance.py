@@ -178,7 +178,7 @@ def plan(report, result):
         step('검색 반경을 넓혀 다시 분석하거나 현장 확인을 요청하세요.',
              f'{within} 영상 분석이 가능한 웹캠이 없습니다.')
     elif outcome in ('CAMERA_UNAVAILABLE', 'RECORDING_UNAVAILABLE'):
-        step('A 노트북 웹캠 연결·녹화 상태를 확인한 뒤 다시 분석하세요.', '분석할 영상을 받지 못했습니다.')
+        step('녹화 장비의 웹캠 연결·녹화 상태를 확인한 뒤 다시 분석하세요.', '분석할 영상을 받지 못했습니다.')
     elif outcome == 'MANUAL_REVIEW_REQUIRED':
         step('자동 분석이 실패했습니다. 반경 안 웹캠 원본 영상을 직접 확인하세요.', '분석 오류로 결과가 없습니다.')
     else:

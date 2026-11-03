@@ -35,7 +35,7 @@ type Catalog = { items: EvidenceItem[]; analysis_started_at: string | null; warn
 const REPRESENTATION: Record<EvidenceItem["representation"], string> = {
   upload_original: "신고자 업로드 원본",
   analysis_overlay: "AI 표시가 포함된 분석본",
-  remux_copy: "보존 사본 (A 원본 녹화를 다시 담은 파일)",
+  remux_copy: "보존 사본 (원본 녹화를 다시 담은 파일)",
 };
 const KIND: Record<EvidenceItem["kind"], string> = { image: "사진", audio: "녹음", video: "영상" };
 

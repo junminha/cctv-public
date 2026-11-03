@@ -102,7 +102,7 @@ class Pipeline:
             self.store.sync(self.adapter.cameras())
         except AdapterError as exc:
             self.store.invalidate_cameras()
-            result['warnings'].append(f'A 카메라 상태 확인 실패: {exc.message}')
+            result['warnings'].append(f'카메라 상태 확인 실패: {exc.message}')
         candidates, result['search'] = self._search(report, params)
         # The stored report radius stays as reported; this analysis uses the widened one.
         searched = {**report, 'radius_m': result['search']['radius_m']}

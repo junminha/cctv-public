@@ -78,7 +78,7 @@ function CameraCard({ camera, onSaved }: { camera: Camera; onSaved: () => void }
       {preview && (
         // eslint-disable-next-line @next/next/no-img-element -- authenticated live frame from B proxy
         <img src={preview} alt={`${camera.id} 현재 화면`} className="mt-3 aspect-video w-full rounded bg-chart object-cover"
-          onError={() => setMessage("현재 화면을 받지 못했습니다. A의 RTSP 중계와 Tailscale 연결을 확인하세요.")} />
+          onError={() => setMessage("현재 화면을 받지 못했습니다. 녹화 장비의 RTSP 중계와 Tailscale 연결을 확인하세요.")} />
       )}
     </form>
   );
@@ -113,11 +113,11 @@ export function CameraRegistry() {
         <div>
           <h1 className="font-display text-3xl">카메라 등록</h1>
           <p className="mt-1 max-w-2xl text-sm text-ink-soft">
-            영상 분석에는 노트북 A의 시연 웹캠 cam-01(내장), cam-02·cam-03(USB)만 사용합니다. 위치와 시연 구역을 실제 설치 지점대로 입력하고,
+            영상 분석에는 시연 웹캠 cam-01(내장), cam-02·cam-03(USB)만 사용합니다. 위치와 시연 구역을 실제 설치 지점대로 입력하고,
             출연자 동의를 받은 카메라만 분석을 승인하세요. 부산 공개 CCTV는 지도 표시 전용이며 여기 등록하지 않습니다.
           </p>
         </div>
-        <button onClick={sync} className="rounded bg-beacon px-4 py-2 text-sm font-bold text-white">A 카메라 상태 가져오기</button>
+        <button onClick={sync} className="rounded bg-beacon px-4 py-2 text-sm font-bold text-white">카메라 상태 가져오기</button>
       </div>
       {message && <p role="status" className="mt-3 text-sm text-amber">{message}</p>}
       {health && (
@@ -127,7 +127,7 @@ export function CameraRegistry() {
         </p>
       )}
       {cameras.length === 0 ? (
-        <p className="mt-8 text-sm text-ink-soft">등록된 카메라가 없습니다. A 카메라 상태 가져오기를 누르세요.</p>
+        <p className="mt-8 text-sm text-ink-soft">등록된 카메라가 없습니다. 카메라 상태 가져오기를 누르세요.</p>
       ) : (
         <div className="mt-6 grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {cameras.map((camera) => <CameraCard key={`${camera.id}-${camera.synced_at}`} camera={camera} onSaved={load} />)}
