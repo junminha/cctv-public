@@ -42,6 +42,7 @@ def engine():
         yolo_model = str(MODELS / 'yolo26n.pt')
         pose_model = str(MODELS / 'pose_landmarker_lite.task')
         scene_model = str(MODELS / 'yolo-world-cctv.pt')
+        trained_scene_model = str(MODELS / 'cctv-scene.pt')
         ai_device = 'auto'
     return VisionEngine(Settings())
 
@@ -100,3 +101,18 @@ def test_missing_scene_model_falls_back_with_a_warning(clips):
     engine_ = VisionEngine(SimpleNamespace(scene_model='missing/yolo-world-cctv.pt'))
     result = engine_.scene_check(clips['empty'], 'SMOKING')
     assert result['visible'] is False and result['source'] == 'unavailable' and 'setup_models.py' in result['warnings'][0]
+
+
+@pytest.mark.skipif(not (MODELS / 'cctv-scene.pt').is_file(), reason='fine-tuned scene model not installed')
+def test_fine_tuned_model_covers_fire_and_road_damage_and_yolo_world_the_rest(engine, clips):
+    assert engine.scene_check(clips['empty'], 'FIRE_SMOKE', max_seconds=3)['source'] == 'trained:cctv-scene.pt'
+    assert engine.scene_check(clips['empty'], 'POTHOLE', max_seconds=3)['source'] == 'trained:cctv-scene.pt'
+    assert engine.scene_check(clips['empty'], 'ILLEGAL_DUMPING', max_seconds=3)['source'].startswith('yolo-world:')
+
+
+def test_without_the_fine_tuned_file_fire_falls_back_to_yolo_world(clips):
+    from types import SimpleNamespace
+    from vision import VisionEngine
+    engine_ = VisionEngine(SimpleNamespace(scene_model='missing/yolo-world-cctv.pt', trained_scene_model='missing/cctv-scene.pt'))
+    result = engine_.scene_check(clips['empty'], 'FIRE_SMOKE')
+    assert result['source'] == 'unavailable' and 'yolo-world-cctv.pt' in result['warnings'][0]

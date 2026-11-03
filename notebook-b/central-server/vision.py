@@ -51,6 +51,13 @@ SCENE_VOCAB = {
     'FIRE_SMOKE': {'fire': '불꽃', 'smoke': '연기'},
     'SAFETY_THREAT': {'people fighting': '다투는 사람들', 'knife': '칼'},
 }
+# Classes of the model fine-tuned on public data (D-Fire, pothole, crack-seg; see shared/API.md v0.13).
+# Where it covers a situation it is used instead of YOLO-World; without the file YOLO-World stays.
+TRAINED_VOCAB = {
+    'FIRE_SMOKE': {'smoke': '연기', 'fire': '불꽃'},
+    'POTHOLE': {'pothole': '포트홀', 'road_crack': '도로 균열'},
+}
+TRAINED_MIN_CONFIDENCE = 0.35
 SCENE_TYPES = set(SCENE_VOCAB)
 SCENE_WORDS = [word for words in SCENE_VOCAB.values() for word in words]
 SCENE_MIN_CONFIDENCE = 0.25  # open-vocabulary scores run lower than COCO classes
@@ -88,7 +95,8 @@ class VisionEngine:
         self.yolo_path = Path(getattr(settings, 'yolo_model', 'runtime/models/yolo26n.pt'))
         self.pose_path = Path(getattr(settings, 'pose_model', 'runtime/models/pose_landmarker_lite.task'))
         self.scene_path = Path(getattr(settings, 'scene_model', 'runtime/models/yolo-world-cctv.pt'))
-        self.scene = None
+        self.trained_path = Path(getattr(settings, 'trained_scene_model', 'runtime/models/cctv-scene.pt'))
+        self.scene = self.trained = None
         self.requested_device = getattr(settings, 'ai_device', 'auto')
         self.yolo = self.pose = self.device = None
         self.lock = threading.Lock()
@@ -118,11 +126,13 @@ class VisionEngine:
     def status(self):
         return {'yolo_model': self.yolo_path.name, 'pose_model': self.pose_path.name,
                 'scene_model': self.scene_path.name if self.scene_path.is_file() else None,
+                'trained_scene_model': self.trained_path.name if self.trained_path.is_file() else None,
                 'models_present': self.yolo_path.is_file() and self.pose_path.is_file(),
                 'loaded': self.yolo is not None, 'device': self.device}
 
     def scene_check(self, path, incident_type, *, max_seconds=15.0, count=4):
-        """Look for what YOLO's people/vehicle classes cannot see (dumping, smoke, damage…) with local YOLO-World.
+        """Look for what YOLO's people/vehicle classes cannot see (dumping, smoke, damage…): the fine-tuned model
+        where it covers the situation, otherwise local YOLO-World.
 
         Returns {visible, confidence, finding, timestamp_seconds, source, warnings, image}; `image` is the
         annotated JPEG of the best frame (bytes) or None. A candidate only, never a verdict."""
@@ -131,27 +141,33 @@ class VisionEngine:
         words = SCENE_VOCAB.get(incident_type)
         if not words:
             return {**empty, 'source': 'none', 'warnings': []}
-        if not self.scene_path.is_file():
+        trained = incident_type in TRAINED_VOCAB and self.trained_path.is_file()
+        if trained:
+            words, model_path, attribute, minimum = TRAINED_VOCAB[incident_type], self.trained_path, 'trained', TRAINED_MIN_CONFIDENCE
+        else:
+            model_path, attribute, minimum = self.scene_path, 'scene', SCENE_MIN_CONFIDENCE
+        if not model_path.is_file():
             return {**empty, 'source': 'unavailable',
-                    'warnings': [f'장면 확인 모델 {self.scene_path.name}이 없어 YOLO 결과만 썼습니다(setup_models.py 실행).']}
+                    'warnings': [f'장면 확인 모델 {model_path.name}이 없어 YOLO 결과만 썼습니다(setup_models.py 실행).']}
         frames = keyframes(path, count, max_seconds)
         with self.lock:
             self.load()
-            if self.scene is None:
+            if getattr(self, attribute) is None:
                 from ultralytics import YOLO
-                self.scene = YOLO(str(self.scene_path))
-            names = self.scene.names
+                setattr(self, attribute, YOLO(str(model_path)))
+            model = getattr(self, attribute)
+            names = model.names
             wanted = [index for index, name in names.items() if name in words]
             best = None
             for seconds, image in frames:
-                prediction = self.scene.predict(image, device=self.device, conf=0.15, imgsz=640, verbose=False,
-                                                classes=wanted)[0]
+                prediction = model.predict(image, device=self.device, conf=0.15, imgsz=640, verbose=False,
+                                           classes=wanted)[0]
                 for box in prediction.boxes:
                     confidence = float(box.conf[0])
                     if best is None or confidence > best[0]:
                         best = (confidence, seconds, image, names[int(box.cls[0])], box.xyxy[0].tolist())
-        source = 'yolo-world:' + self.scene_path.name
-        if best is None or best[0] < SCENE_MIN_CONFIDENCE:
+        source = ('trained:' if trained else 'yolo-world:') + model_path.name
+        if best is None or best[0] < minimum:
             return {**empty, 'confidence': round(best[0], 3) if best else 0.0, 'source': source, 'warnings': []}
         confidence, seconds, image, word, (x1, y1, x2, y2) = best
         overlay = image.copy()

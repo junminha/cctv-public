@@ -28,6 +28,7 @@ class Settings:
     yolo_model: str = str(ROOT / 'runtime/models/yolo26n.pt')
     pose_model: str = str(ROOT / 'runtime/models/pose_landmarker_lite.task')
     scene_model: str = str(ROOT / 'runtime/models/yolo-world-cctv.pt')
+    trained_scene_model: str = str(ROOT / 'runtime/models/cctv-scene.pt')
     attachments_dir: Path = ROOT / 'runtime/attachments'
     analysis_dir: Path = ROOT / 'runtime/analysis'
     admin_origins: tuple = ('http://localhost:3000', 'http://127.0.0.1:3000')
@@ -118,6 +119,7 @@ def load_settings():
                     yolo_model=env.get('CCTV_YOLO_MODEL', '').strip() or defaults.yolo_model,
                     pose_model=env.get('CCTV_POSE_MODEL', '').strip() or defaults.pose_model,
                     scene_model=env.get('CCTV_SCENE_MODEL', '').strip() or defaults.scene_model,
+                    trained_scene_model=env.get('CCTV_TRAINED_SCENE_MODEL', '').strip() or defaults.trained_scene_model,
                     attachments_dir=Path(env.get('CCTV_B_ATTACHMENTS_DIR', str(defaults.attachments_dir))),
                     analysis_dir=Path(env.get('CCTV_B_ANALYSIS_DIR', str(defaults.analysis_dir))),
                     admin_origins=origins)

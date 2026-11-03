@@ -386,3 +386,14 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
   `cameras[].scene_check.source`는 `yolo-world:yolo-world-cctv.pt`, 근거 사진은 상자를 그린 장면, 관찰 문구는 "장면 확인: … 후보 (신뢰도 x)".
   관련성 규칙(확인이 된 카메라는 그 결과만 사용)은 v0.11과 같다. 모델 파일이 없으면 YOLO 결과만 쓰고 경고를 남긴다.
 - 열린 어휘 탐지라 정확도는 학습된 클래스보다 낮다. 모든 결과는 후보이며 사람이 원본을 확인한다.
+
+## B 공개 데이터로 학습한 장면 모델 (v0.13)
+
+사용자 결정(2026-11-03): 인터넷 공개 데이터로 로컬 모델을 학습한다. 공공 CCTV 영상은 학습에 쓰지 않는다.
+
+- 모델 `runtime/models/cctv-scene.pt`(git 제외, `.env` `CCTV_TRAINED_SCENE_MODEL`로 경로 변경 가능): yolo26n을 4종(smoke, fire, pothole, road_crack)으로
+  40회 학습. 데이터: D-Fire(CC0) 4,500장, jaygala24/pothole-detection(저장소 MIT, 사진은 저자가 웹에서 수집) 1,243장,
+  ultralytics crack-seg(분할 라벨을 박스로 변환) 1,700장. 검증 mAP50 0.732(연기 0.78, 불꽃 0.70, 포트홀 0.65, 균열 0.80).
+- `FIRE_SMOKE`(연기·불꽃)와 `POTHOLE`(포트홀·도로 균열)은 이 모델로 장면 확인한다(신뢰도 0.35 이상이면 `visible`,
+  `scene_check.source = trained:cctv-scene.pt`). 나머지 유형은 YOLO-World(v0.12), 파일이 없으면 YOLO-World로 돌아간다.
+- 사진 저작권 때문에 학습 데이터와 모델은 시연·연구용으로만 쓰고 배포하지 않는다.

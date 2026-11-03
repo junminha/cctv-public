@@ -1,5 +1,16 @@
 # 협업 인수인계
 
+## 2026-11-03 공개 데이터로 장면 모델 학습 (`work/b-app`)
+
+- 데이터(저장소 밖 `C:\Users\user\Desktop\ahfzk\datasets`): D-Fire CC0(HF 사본 `Stevebirth/fire-ulm-dfire`, SHA256 `a128a072…` 원본 공개값과 일치),
+  jaygala24/pothole-detection v1.0.0, ultralytics crack-seg. 압축은 경로 검사 후 이미지·라벨만 꺼냈다. 합친 학습 6,618장·검증 825장.
+- yolo26n 40회 학습(RTX 3060 Laptop, 약 42분) → 검증 mAP50 **0.732**, mAP50-95 0.447. 연기 0.78, 불꽃 0.70, 포트홀 0.65, 균열 0.80.
+  표본 확인: 포트홀 검증 20/20, 균열 18/20 탐지(D-Fire는 불·연기 없는 사진이 섞여 8/20).
+- `runtime/models/cctv-scene.pt`로 설치하고 `manifest.json`에 해시 기록. 화재·연기와 도로 파손 장면 확인에 쓰고 나머지는 YOLO-World. 계약 v0.13.
+- ultralytics 검증 결과가 메인 체크아웃에 `cctv/runs/`로 생겨 데이터 폴더(`datasets/runs/cctv-scene-val`)로 옮기고 지웠다(이 작업으로 생긴 폴더만).
+- 실제 검증: B `python -m pytest -q` → **174 passed, 1 skipped**(학습 모델 사용·없을 때 YOLO-World 대체 포함).
+  **실제 웹캠 앞 연기·도로 사진으로 탐지가 맞는지는 아직 확인하지 않았다.**
+
 ## 2026-11-03 장면 확인을 로컬 YOLO-World로 교체 (`work/b-app`)
 
 - 사용자 결정: API 비용·외부 전송 없이 로컬 모델로. GPT 이미지 분석(장면 확인)을 YOLO-World(`yolov8s-worldv2`)로 바꿨다. 계약 `shared/API.md` v0.12.
