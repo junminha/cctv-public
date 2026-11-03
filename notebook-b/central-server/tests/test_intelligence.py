@@ -82,15 +82,3 @@ def test_keywords_cover_everyday_inconveniences_without_calling_them_crimes():
              '인도 보도블럭이 패여서 구멍이 있어요': 'POTHOLE', '술 취한 사람들이 싸우고 있어요': 'SAFETY_THREAT'}
     for text, expected in cases.items():
         assert local_classification(text)['incident_type'] == expected, text
-
-
-def test_scene_check_asks_only_what_is_visible_and_never_without_a_key():
-    from intelligence import SceneCheck
-    ai, responses = engine(SceneCheck(visible=True, confidence=0.7, finding='바닥에 쓰레기 봉투 더미', frame=3))
-    result = ai.check_scene('ILLEGAL_DUMPING', '쓰레기 무단투기', '골목', [(1.0, b'jpeg-a'), (2.0, b'jpeg-b')])
-    assert result['visible'] is True and result['frame'] == 1 and result['source'] == 'openai:test-model'
-    content = responses.calls[0]['input'][0]['content']
-    assert '단정하지 마세요' in content[0]['text'] and len([c for c in content if c['type'] == 'input_image']) == 2
-    assert all(c['detail'] == 'low' for c in content if c['type'] == 'input_image')
-    off = Intelligence(SimpleNamespace(openai_api_key='')).check_scene('SMOKING', '', '', [(0.0, b'x')])
-    assert off['visible'] is False and off['source'] == 'unavailable' and off['warnings']

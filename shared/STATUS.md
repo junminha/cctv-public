@@ -1,5 +1,15 @@
 # 협업 인수인계
 
+## 2026-11-03 장면 확인을 로컬 YOLO-World로 교체 (`work/b-app`)
+
+- 사용자 결정: API 비용·외부 전송 없이 로컬 모델로. GPT 이미지 분석(장면 확인)을 YOLO-World(`yolov8s-worldv2`)로 바꿨다. 계약 `shared/API.md` v0.12.
+- `setup_models.py`가 찾을 단어(투기·방치물·흡연·도로 파손·시설물 파손·화재 연기·다툼)를 넣은 `runtime/models/yolo-world-cctv.pt`를 만든다.
+  만들 때만 CLIP이 필요해 ultralytics가 B 가상환경(**메인 체크아웃 `cctv/notebook-b/central-server/.venv`**)에 `clip`(ultralytics fork)·ftfy·regex·
+  tqdm·wcwidth를 자동 설치했고, CLIP ViT-B/32(338MB)를 사용자 캐시에 받았다. `requirements-ai.txt`에 기록했다. 서버 실행은 CLIP 없이 된다.
+- 속도(RTX 3060 Laptop): 모델 로드 약 2초(첫 분석 1회), 장면 1장 약 35ms. 신고 1건에 웹캠 3대 × 4장.
+- 실제 검증: B `python -m pytest -q` → **172 passed, 1 skipped**(실제 YOLO-World로 합성 클립 장면 확인, 모델 없음 시 경고, 분석 흐름에서
+  장면 확인된 카메라만 선택). **실제 웹캠 장면(쓰레기 봉투·연기 등)으로 탐지가 맞는지는 아직 확인하지 않았다.**
+
 ## 2026-11-03 사건 유형·기관 확대, AI 장면 확인 (`work/b-app`)
 
 - 사용자 결정: 상황에 맞는 기관(경찰·소방·시청·구청 부서 등)을 고르고, 투기·흡연·도로 파손 등 생활 불편도 다루며,

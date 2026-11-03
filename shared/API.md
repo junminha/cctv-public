@@ -372,3 +372,17 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
   투기·흡연·파손의 근거가 아니다). 보이면 그 장면을 `scan.evidence`(evidence-0N.jpg, findings "AI 장면 확인: …")와
   관찰(`kind=scene_check`, `verified=false`)에 넣는다. OpenAI 키가 없거나 실패하면 YOLO 결과만 쓰고 경고를 남긴다.
   공개 CCTV 영상은 대상이 아니다(웹캠만).
+
+## B 장면 확인을 로컬 YOLO-World로 교체 (v0.12)
+
+사용자 결정(2026-11-03): v0.11의 "AI 장면 확인"을 OpenAI 이미지 분석 대신 **로컬 YOLO-World**로 한다. 영상·이미지가 외부로 나가지 않고 API 비용이 없다.
+
+- 모델: `runtime/models/yolo-world-cctv.pt` (`setup_models.py`가 `yolov8s-worldv2.pt`에 `vision.SCENE_VOCAB` 단어를 넣어 한 번 만든다.
+  만들 때만 CLIP이 필요하고 서버 실행에는 필요 없다). 경로는 `.env`의 `CCTV_SCENE_MODEL`로 바꿀 수 있다. git에 넣지 않는다.
+- 대상 유형과 찾는 대상: 무단투기(쓰레기 봉투·더미·비닐·버려진 쓰레기), 방치물(가방·배낭·상자), 흡연(담배·흡연하는 사람),
+  도로 파손(포트홀·균열), 시설물 파손(낙서·깨진 유리·부서진 벤치), 화재·연기(불꽃·연기), 다툼·위협(다투는 사람들·칼).
+  `OTHER`는 대상 단어가 없어 YOLO 결과만 쓴다.
+- 웹캠 클립에서 장면 4장을 골라 해당 유형의 단어만 찾는다. 가장 높은 신뢰도가 0.25 이상이면 `visible=true`.
+  `cameras[].scene_check.source`는 `yolo-world:yolo-world-cctv.pt`, 근거 사진은 상자를 그린 장면, 관찰 문구는 "장면 확인: … 후보 (신뢰도 x)".
+  관련성 규칙(확인이 된 카메라는 그 결과만 사용)은 v0.11과 같다. 모델 파일이 없으면 YOLO 결과만 쓰고 경고를 남긴다.
+- 열린 어휘 탐지라 정확도는 학습된 클래스보다 낮다. 모든 결과는 후보이며 사람이 원본을 확인한다.

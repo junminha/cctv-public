@@ -18,8 +18,8 @@ from evidence import report_lock, safe_path
 import guidance
 from media import capture_live
 from models import DEMO_CAMERA_IDS, AnalyzeInput, PreserveInput, utc
-from intelligence import INCIDENT_LABELS, SCENE_TYPES
-from vision import VisionUnavailable, keyframes
+from intelligence import INCIDENT_LABELS
+from vision import SCENE_TYPES, VisionUnavailable
 
 RECORDING_LAG_SECONDS = 70  # A lists only finalized 60 s segments.
 EXPAND_STEP_M = 100  # Design doc 6.2: widen 100 -> 200 -> 300 m when the radius has no camera.
@@ -187,51 +187,48 @@ class Pipeline:
             for evidence in analysis['evidence'][:2]:
                 evidence['path'] = f"{kind}/{row['camera_id']}/{evidence['file']}"
                 evidence_images.append(folder / evidence['path'])
-            # The AI scene look was taken on the scan clip; carry it into the selected camera's observations.
+            # The scene look was taken on the scan clip; carry it into the selected camera's observations.
             check = row.get('scene_check') or {}
             if kind == 'focus' and check.get('visible'):
                 seconds = check.get('timestamp_seconds')
-                observations.append({'finding': 'AI 장면 확인: ' + check['finding'], 'kind': 'scene_check',
+                observations.append({'finding': '장면 확인: ' + check['finding'], 'kind': 'scene_check',
                                      'verified': False, 'camera_id': row['camera_id'], 'timestamp_seconds': seconds,
                                      'timestamp': utc(window_start + timedelta(seconds=seconds)) if seconds is not None else None})
                 evidence_images += [folder / item['path'] for item in row['scan']['evidence']
-                                    if item.get('path') and item['findings'][:1] and item['findings'][0].startswith('AI 장면 확인')]
+                                    if item.get('path') and item['findings'][:1] and item['findings'][0].startswith('장면 확인')]
         result['outcome'] = 'REVIEW_REQUIRED' if result['selected_camera_ids'] else 'VIDEO_NOT_VISIBLE'
         stage('SUMMARIZING', 0.85)
         result['summary'] = self._summary(report, incident, observations, evidence_images + images,
                                           transcripts, result)
 
     def _scene(self, report, incident, clip, row, kind, folder, params, result, scenes):
-        """For situations YOLO cannot see (dumping, smoking, damage, smoke…), ask the model about two key frames."""
+        """For situations YOLO's people/vehicle classes cannot see (dumping, smoke, damage…): local YOLO-World."""
         if incident not in SCENE_TYPES:
             return
         camera = row['camera_id']
         if camera not in scenes:
             try:
-                frames = keyframes(clip, 2, params.duration)
+                check = self.vision.scene_check(clip, incident, max_seconds=params.duration)
             except VisionUnavailable as exc:
-                result['warnings'].append(f'{camera} AI 장면 확인용 장면 추출 실패: {exc}')
+                result['warnings'].append(f'{camera} 장면 확인 실패: {exc}')
                 scenes[camera] = None
                 return
-            check = self.intelligence.check_scene(incident, report.get('description', ''), report.get('details', ''), frames)
             for warning in check.get('warnings', []):
                 if warning not in result['warnings']:
                     result['warnings'].append(warning)
-            frame = frames[check['frame']] if check['visible'] else None
-            row['scene_check'] = {'visible': check['visible'], 'confidence': round(check['confidence'], 3),
-                                  'finding': check['finding'], 'source': check['source'],
-                                  'timestamp_seconds': frame[0] if frame else None}
-            scenes[camera] = frame
+            row['scene_check'] = {key: check[key] for key in
+                                  ('visible', 'confidence', 'finding', 'source', 'timestamp_seconds')}
+            scenes[camera] = (check['timestamp_seconds'], check['image']) if check['visible'] and check['image'] else None
         frame = scenes.get(camera)
         check = row.get('scene_check') or {}
         analysis = row[kind]
-        # People or cars in view say nothing about dumping, smoking or damage: once the model has looked,
-        # its answer alone is the relevance. Without a key (or on failure) the YOLO score stays.
+        # People or cars in view say nothing about dumping, smoking or damage: once the scene model has looked,
+        # its answer alone is the relevance. Without the model file the YOLO score stays.
         if check.get('source', 'unavailable') != 'unavailable':
             analysis['relevance_score'] = round(check['confidence'], 4) if check.get('visible') else 0.0
         if not frame or not check.get('visible'):
             return
-        finding = 'AI 장면 확인: ' + (check['finding'] or INCIDENT_LABELS.get(incident, incident) + ' 관련 장면 후보')
+        finding = '장면 확인: ' + (check['finding'] or INCIDENT_LABELS.get(incident, incident) + ' 관련 장면 후보')
         analysis['observations'].append({'finding': finding, 'kind': 'scene_check', 'verified': False,
                                          'timestamp_seconds': frame[0]})
         if len(analysis['evidence']) < 3:

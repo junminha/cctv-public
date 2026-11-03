@@ -34,7 +34,19 @@ def main():
         with urllib.request.urlopen(POSE_URL, timeout=120) as response, partial.open('wb') as output:
             shutil.copyfileobj(response, output)
         partial.rename(pose)
-    for path, source in ((yolo, 'ultralytics GitHub release asset yolo26n.pt'), (pose, POSE_URL)):
+    scene = FOLDER / 'yolo-world-cctv.pt'
+    if not scene.exists():
+        # YOLO-World with the words in vision.SCENE_VOCAB baked in, so runtime needs neither CLIP nor an API.
+        from ultralytics import YOLOWorld
+        from ultralytics.utils.downloads import attempt_download_asset
+        from vision import SCENE_WORDS
+        base = Path(attempt_download_asset('yolov8s-worldv2.pt'))
+        model = YOLOWorld(str(base))
+        model.set_classes(SCENE_WORDS)
+        model.save(str(scene))
+        base.unlink(missing_ok=True)
+    for path, source in ((yolo, 'ultralytics GitHub release asset yolo26n.pt'), (pose, POSE_URL),
+                         (scene, 'yolov8s-worldv2.pt (ultralytics release) + vision.SCENE_VOCAB via CLIP set_classes')):
         value = digest(path)
         previous = receipt.get(path.name)
         if previous and previous['sha256'] != value:

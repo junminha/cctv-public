@@ -41,6 +41,7 @@ def engine():
     class Settings:
         yolo_model = str(MODELS / 'yolo26n.pt')
         pose_model = str(MODELS / 'pose_landmarker_lite.task')
+        scene_model = str(MODELS / 'yolo-world-cctv.pt')
         ai_device = 'auto'
     return VisionEngine(Settings())
 
@@ -82,3 +83,20 @@ def test_missing_models_and_unreadable_video_fail_explicitly(tmp_path, clips):
         ai_device = 'cpu'
     with pytest.raises(VisionUnavailable):
         VisionEngine(Present()).analyze_clip(broken, tmp_path / 'out')
+
+
+@pytest.mark.skipif(not (MODELS / 'yolo-world-cctv.pt').is_file(), reason='scene model not built (setup_models.py)')
+def test_local_scene_check_runs_yolo_world_without_any_api(engine, clips):
+    result = engine.scene_check(clips['empty'], 'ILLEGAL_DUMPING', max_seconds=3)
+    assert result['source'] == 'yolo-world:yolo-world-cctv.pt' and result['warnings'] == []
+    assert isinstance(result['visible'], bool) and 0 <= result['confidence'] <= 1
+    assert (result['image'] is not None) == result['visible']
+    assert engine.scene_check(clips['empty'], 'FALL_SUSPECTED')['source'] == 'none'
+
+
+def test_missing_scene_model_falls_back_with_a_warning(clips):
+    from types import SimpleNamespace
+    from vision import VisionEngine
+    engine_ = VisionEngine(SimpleNamespace(scene_model='missing/yolo-world-cctv.pt'))
+    result = engine_.scene_check(clips['empty'], 'SMOKING')
+    assert result['visible'] is False and result['source'] == 'unavailable' and 'setup_models.py' in result['warnings'][0]

@@ -14,7 +14,7 @@ PERSON = 0
 
 
 def keyframes(path, count=2, max_seconds=15.0, width=640):
-    """Evenly spaced JPEG frames of a clip for an AI look: [(seconds, jpeg bytes)]. The clip is not modified."""
+    """Evenly spaced frames of a clip: [(seconds, BGR image)]. The clip is not modified."""
     import cv2
     capture = cv2.VideoCapture(str(path))
     if not capture.isOpened():
@@ -32,15 +32,28 @@ def keyframes(path, count=2, max_seconds=15.0, width=640):
                 continue
             if image.shape[1] > width:
                 image = cv2.resize(image, (width, round(image.shape[0] * width / image.shape[1])))
-            ok, buffer = cv2.imencode('.jpg', image, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            if ok:
-                frames.append((round(target / fps, 2), buffer.tobytes()))
+            frames.append((round(target / fps, 2), image))
     finally:
         capture.release()
     if not frames:
         raise VisionUnavailable('No decodable key frames in the clip')
     return frames
 
+
+# Open-vocabulary words baked into runtime/models/yolo-world-cctv.pt by setup_models.py (YOLO-World,
+# local, no API). Each reported situation is checked only against its own words.
+SCENE_VOCAB = {
+    'ILLEGAL_DUMPING': {'trash bag': '쓰레기 봉투', 'garbage pile': '쓰레기 더미', 'plastic bag': '비닐봉지', 'litter': '버려진 쓰레기'},
+    'ABANDONED_OBJECT': {'suitcase': '여행 가방', 'backpack': '배낭', 'handbag': '손가방', 'cardboard box': '종이 상자'},
+    'SMOKING': {'cigarette': '담배', 'person smoking': '흡연하는 사람'},
+    'POTHOLE': {'pothole': '포트홀', 'road crack': '도로 균열'},
+    'VANDALISM': {'graffiti': '낙서', 'broken glass': '깨진 유리', 'broken bench': '부서진 벤치'},
+    'FIRE_SMOKE': {'fire': '불꽃', 'smoke': '연기'},
+    'SAFETY_THREAT': {'people fighting': '다투는 사람들', 'knife': '칼'},
+}
+SCENE_TYPES = set(SCENE_VOCAB)
+SCENE_WORDS = [word for words in SCENE_VOCAB.values() for word in words]
+SCENE_MIN_CONFIDENCE = 0.25  # open-vocabulary scores run lower than COCO classes
 
 VEHICLES = {1: '자전거', 2: '승용차', 3: '오토바이', 5: '버스', 7: '트럭'}
 LABELS = {PERSON: '사람', **VEHICLES}
@@ -74,6 +87,8 @@ class VisionEngine:
     def __init__(self, settings):
         self.yolo_path = Path(getattr(settings, 'yolo_model', 'runtime/models/yolo26n.pt'))
         self.pose_path = Path(getattr(settings, 'pose_model', 'runtime/models/pose_landmarker_lite.task'))
+        self.scene_path = Path(getattr(settings, 'scene_model', 'runtime/models/yolo-world-cctv.pt'))
+        self.scene = None
         self.requested_device = getattr(settings, 'ai_device', 'auto')
         self.yolo = self.pose = self.device = None
         self.lock = threading.Lock()
@@ -102,8 +117,51 @@ class VisionEngine:
 
     def status(self):
         return {'yolo_model': self.yolo_path.name, 'pose_model': self.pose_path.name,
+                'scene_model': self.scene_path.name if self.scene_path.is_file() else None,
                 'models_present': self.yolo_path.is_file() and self.pose_path.is_file(),
                 'loaded': self.yolo is not None, 'device': self.device}
+
+    def scene_check(self, path, incident_type, *, max_seconds=15.0, count=4):
+        """Look for what YOLO's people/vehicle classes cannot see (dumping, smoke, damage…) with local YOLO-World.
+
+        Returns {visible, confidence, finding, timestamp_seconds, source, warnings, image}; `image` is the
+        annotated JPEG of the best frame (bytes) or None. A candidate only, never a verdict."""
+        import cv2
+        empty = {'visible': False, 'confidence': 0.0, 'finding': '', 'timestamp_seconds': None, 'image': None}
+        words = SCENE_VOCAB.get(incident_type)
+        if not words:
+            return {**empty, 'source': 'none', 'warnings': []}
+        if not self.scene_path.is_file():
+            return {**empty, 'source': 'unavailable',
+                    'warnings': [f'장면 확인 모델 {self.scene_path.name}이 없어 YOLO 결과만 썼습니다(setup_models.py 실행).']}
+        frames = keyframes(path, count, max_seconds)
+        with self.lock:
+            self.load()
+            if self.scene is None:
+                from ultralytics import YOLO
+                self.scene = YOLO(str(self.scene_path))
+            names = self.scene.names
+            wanted = [index for index, name in names.items() if name in words]
+            best = None
+            for seconds, image in frames:
+                prediction = self.scene.predict(image, device=self.device, conf=0.15, imgsz=640, verbose=False,
+                                                classes=wanted)[0]
+                for box in prediction.boxes:
+                    confidence = float(box.conf[0])
+                    if best is None or confidence > best[0]:
+                        best = (confidence, seconds, image, names[int(box.cls[0])], box.xyxy[0].tolist())
+        source = 'yolo-world:' + self.scene_path.name
+        if best is None or best[0] < SCENE_MIN_CONFIDENCE:
+            return {**empty, 'confidence': round(best[0], 3) if best else 0.0, 'source': source, 'warnings': []}
+        confidence, seconds, image, word, (x1, y1, x2, y2) = best
+        overlay = image.copy()
+        cv2.rectangle(overlay, (int(x1), int(y1)), (int(x2), int(y2)), (0, 165, 255), 2)
+        cv2.putText(overlay, f'{word} {confidence:.2f}', (int(x1), max(12, int(y1) - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                    (0, 165, 255), 1)
+        ok, buffer = cv2.imencode('.jpg', overlay, [cv2.IMWRITE_JPEG_QUALITY, 85])
+        return {'visible': True, 'confidence': round(confidence, 3), 'timestamp_seconds': seconds,
+                'finding': f'{words[word]} 후보 (신뢰도 {confidence:.2f})', 'source': source, 'warnings': [],
+                'image': buffer.tobytes() if ok else None}
 
     def analyze_clip(self, path, output_dir, *, sample_fps=1.0, max_seconds=15.0, incident_type='OTHER'):
         with self.lock:
