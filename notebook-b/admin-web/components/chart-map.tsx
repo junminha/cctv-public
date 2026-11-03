@@ -39,6 +39,10 @@ const reportPin = (active: boolean, running: boolean, draft = false) =>
     iconAnchor: active || draft ? [10, 10] : [7, 7],
   });
 
+// Analysis found a related scene here: a DOM ring (canvas markers cannot animate) that reads from across the map.
+const hotRing = divIcon({ className: "", html: '<span class="hot-ring"></span>', iconSize: [44, 44], iconAnchor: [22, 22] });
+const HOT_SCORE = 0.6;
+
 const pin = (rank: number) =>
   divIcon({ className: "", html: `<span class="rec-pin${rank === 1 ? " top" : ""}">${rank}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] });
 
@@ -206,9 +210,11 @@ function LiveMap(props: MapProps) {
         const usable = camera.approved && camera.demo_source;
         const color = usable ? css("signal") : css("buoy");
         const score = ranks.get(camera.id)?.rank_score;
-        const radius = chosen ? 9 : 7;
+        const hot = score !== undefined && score >= HOT_SCORE;
+        const radius = hot ? 11 : chosen ? 9 : 7;
         return (
           <Fragment key={`${camera.id}-${score ?? "none"}-${chosen}`}>
+          {hot && <Marker position={[camera.latitude!, camera.longitude!]} icon={hotRing} interactive={false} keyboard={false} zIndexOffset={-100} />}
           <CircleMarker center={[camera.latitude!, camera.longitude!]} radius={radius + 2.5} interactive={false}
             pathOptions={{ color: chosen ? css("beacon") : css("ink"), weight: chosen ? 2 : 1, fill: false }} />
           <CircleMarker
@@ -217,7 +223,7 @@ function LiveMap(props: MapProps) {
             pathOptions={{ color: "#fff", weight: 3, fillColor: color, fillOpacity: camera.online ? 0.95 : 0.35 }}
           >
             {score !== undefined ? (
-              <Tooltip permanent direction="right" offset={[10, 0]} className="score-tag">{`${camera.id} 관련 ${relevanceLabel(score)}`}</Tooltip>
+              <Tooltip permanent direction="right" offset={[10, 0]} className={hot ? "score-tag hot" : "score-tag"}>{`${camera.id} 관련 ${relevanceLabel(score)}`}</Tooltip>
             ) : (
               <Tooltip direction="top" offset={[0, -8]}>
                 {`${camera.id}${camera.zone ? ` · ${camera.zone}` : ""}${usable ? "" : " · 분석 미승인"}${camera.online ? "" : " · 오프라인"}`}

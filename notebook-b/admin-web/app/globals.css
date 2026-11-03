@@ -465,3 +465,10 @@ body {
 .advanced-settings > summary { color: var(--ink); font-weight: 600; }
 .ranking-note details > summary { color: var(--ink-soft); }
 .legend-toggle:not([open]) > summary { margin-bottom: 0; }
+
+/* Cameras where analysis saw a related scene: orange tag and a slow ring, so they stand out from other candidates. */
+.leaflet-tooltip.score-tag.hot { background: var(--beacon); font-weight: 700; font-size: 12px; padding: 2px 8px; }
+.hot-ring { display: block; width: 44px; height: 44px; border: 3px solid var(--beacon); border-radius: 50%;
+  background: color-mix(in srgb, var(--beacon) 18%, transparent); animation: hot-ring 1.8s ease-out infinite; }
+@keyframes hot-ring { 0% { transform: scale(.55); opacity: 1; } 100% { transform: scale(1.15); opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .hot-ring { animation: none; } }

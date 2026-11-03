@@ -142,6 +142,11 @@ async page => {
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1 || document.documentElement.scrollHeight > innerHeight + 1);
       if (overflow) throw new Error(`Viewport overflow at ${width} ${path}`);
       await page.screenshot({ path: `output/playwright/guidance-${width}-${path === '/' ? 'report' : 'live'}.png` });
+      if (path === '/') {
+        const hot = await page.locator('.hot-ring').count();
+        const tag = await page.locator('.leaflet-tooltip.score-tag.hot').textContent().catch(() => '');
+        if (hot !== 1 || !tag.includes('cam-02 관련 높음')) throw new Error(`High-relevance camera not highlighted at ${width}: ring=${hot} tag=${tag}`);
+      }
       await switchTab(path, '대응');
       await guidance().getByRole('heading', { name: /^대응 (방안 추천|단계)/ }).scrollIntoViewIfNeeded();
       await page.screenshot({ path: `output/playwright/guidance-response-${width}-${path === '/' ? 'report' : 'live'}.png` });
