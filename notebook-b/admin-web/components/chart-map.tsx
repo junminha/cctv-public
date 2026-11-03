@@ -11,7 +11,7 @@ const PUBLIC_MIN_ZOOM = 14;
 // Fit the search circle with a little room around it.
 const RADIUS_MARGIN = 1.25;
 // Canvas rendering cannot resolve CSS variables, so mirror the globals.css tokens here.
-const COLORS = { beacon: "#e2580b", report: "#e2580b", tide: "#0d7f81", buoy: "#8a9ba8", signal: "#dc2626", ink: "#0f2a3d", "ink-soft": "#4b6271" } as const;
+const COLORS = { beacon: "#e2580b", report: "#0f2a3d", tide: "#0d7f81", buoy: "#8a9ba8", signal: "#dc2626", ink: "#0f2a3d", "ink-soft": "#4b6271" } as const;
 const css = (name: keyof typeof COLORS) => COLORS[name];
 
 type PublicCamera = { id: string; name: string; district: string; purpose: string; latitude: number; longitude: number };
@@ -29,6 +29,14 @@ export type MapProps = {
   onPublicCount?: (count: { shown: number; total: number } | null) => void;
   recommended?: PublicRecommendation[];
 };
+
+const reportPin = (active: boolean, running: boolean, draft = false) =>
+  divIcon({
+    className: "",
+    html: `<span class="report-pin${active ? " active" : ""}${running ? " running" : ""}${draft ? " draft" : ""}"></span>`,
+    iconSize: active || draft ? [20, 20] : [14, 14],
+    iconAnchor: active || draft ? [10, 10] : [7, 7],
+  });
 
 const pin = (rank: number) =>
   divIcon({ className: "", html: `<span class="rec-pin${rank === 1 ? " top" : ""}">${rank}</span>`, iconSize: [22, 22], iconAnchor: [11, 11] });
@@ -219,13 +227,13 @@ function LiveMap(props: MapProps) {
       {props.reports.map((report) => {
         const active = report.report_id === selected?.report_id;
         return (
-          <CircleMarker
+          <Marker
             key={report.report_id}
-            center={[report.latitude, report.longitude]}
-            radius={active ? 9 : 6}
+            position={[report.latitude, report.longitude]}
+            icon={reportPin(active, active && running)}
+            zIndexOffset={active ? 900 : 0}
+            title={`신고 지점 #${report.report_id.slice(0, 6).toUpperCase()}`}
             eventHandlers={{ click: () => props.onSelect(report.report_id) }}
-            pathOptions={{ color: "#fff", weight: 2, fillColor: css("report"), fillOpacity: active ? 1 : 0.7,
-              className: active && running ? "beacon-pulse" : undefined }}
           />
         );
       })}
@@ -233,10 +241,9 @@ function LiveMap(props: MapProps) {
       {selected && props.recommended && <Recommended rows={props.recommended} />}
 
       {props.draft && (
-        <CircleMarker center={props.draft} radius={9}
-          pathOptions={{ color: css("report"), weight: 3, dashArray: "2 3", fillColor: "#fff", fillOpacity: 1 }}>
+        <Marker position={props.draft} icon={reportPin(false, false, true)}>
           <Tooltip permanent direction="top" offset={[0, -10]}>신고 지점</Tooltip>
-        </CircleMarker>
+        </Marker>
       )}
     </MapContainer>
   );

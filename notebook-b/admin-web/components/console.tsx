@@ -98,7 +98,7 @@ export function Console() {
           <div className="console-legend pointer-events-auto border border-rule bg-surface px-2 py-1.5 text-[11px] leading-[1.35]">
             <p className="mb-0.5 font-medium">지도 범례</p>
             <ul className="space-y-0.5 text-ink-soft">
-              <li className="flex items-center gap-1.5"><span className="h-2 w-2 shrink-0 bg-beacon" />신고 지점과 검색 반경</li>
+              <li className="flex items-center gap-1.5"><span className="legend-report" aria-hidden />신고 지점과 검색 반경</li>
               <li className="flex items-center gap-1.5"><span className="h-2 w-2 shrink-0 bg-tide" />분석 승인된 시연 웹캠 (cam-01~03)</li>
               <li className="flex items-center gap-1.5"><span className="rec-num top shrink-0">1</span>선택한 신고의 추천 공공 CCTV 순위 (위치정보 기준)</li>
               <li className="flex items-center gap-1.5">

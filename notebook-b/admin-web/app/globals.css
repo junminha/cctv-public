@@ -423,3 +423,12 @@ body {
 .evidence-hash { font-family: var(--font-mono); overflow-wrap: anywhere; }
 .evidence-good { color: var(--tide); font-weight: 700; }
 .evidence-bad { color: var(--signal); font-weight: 700; }
+
+/* Report point on the map: navy diamond with a white rim; the selected one is larger, a running one breathes. */
+.report-pin { display: block; width: 100%; height: 100%; transform: rotate(45deg) scale(.72); background: var(--ink);
+  border: 2px solid #fff; box-shadow: 0 0 0 1px var(--ink); cursor: pointer; }
+.report-pin.draft { background: #fff; border-color: var(--ink); border-style: dashed; box-shadow: none; }
+.report-pin.running { animation: report-breathe 1.6s ease-in-out infinite; }
+@keyframes report-breathe { 50% { box-shadow: 0 0 0 5px rgba(15, 42, 61, .25); } }
+@media (prefers-reduced-motion: reduce) { .report-pin.running { animation: none; } }
+.legend-report { display: inline-block; width: 8px; height: 8px; flex-shrink: 0; margin: 0 1px; transform: rotate(45deg); background: var(--ink); }
