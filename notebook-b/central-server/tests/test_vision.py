@@ -88,7 +88,7 @@ def test_missing_models_and_unreadable_video_fail_explicitly(tmp_path, clips):
 
 @pytest.mark.skipif(not (MODELS / 'yolo-world-cctv.pt').is_file(), reason='scene model not built (setup_models.py)')
 def test_local_scene_check_runs_yolo_world_without_any_api(engine, clips):
-    result = engine.scene_check(clips['empty'], 'ILLEGAL_DUMPING', max_seconds=3)
+    result = engine.scene_check(clips['empty'], 'SMOKING', max_seconds=3)
     assert result['source'] == 'yolo-world:yolo-world-cctv.pt' and result['warnings'] == []
     assert isinstance(result['visible'], bool) and 0 <= result['confidence'] <= 1
     assert (result['image'] is not None) == result['visible']
@@ -104,10 +104,11 @@ def test_missing_scene_model_falls_back_with_a_warning(clips):
 
 
 @pytest.mark.skipif(not (MODELS / 'cctv-scene.pt').is_file(), reason='fine-tuned scene model not installed')
-def test_fine_tuned_model_covers_fire_and_road_damage_and_yolo_world_the_rest(engine, clips):
+def test_fine_tuned_model_covers_fire_road_damage_and_litter_and_yolo_world_the_rest(engine, clips):
     assert engine.scene_check(clips['empty'], 'FIRE_SMOKE', max_seconds=3)['source'] == 'trained:cctv-scene.pt'
     assert engine.scene_check(clips['empty'], 'POTHOLE', max_seconds=3)['source'] == 'trained:cctv-scene.pt'
-    assert engine.scene_check(clips['empty'], 'ILLEGAL_DUMPING', max_seconds=3)['source'].startswith('yolo-world:')
+    assert engine.scene_check(clips['empty'], 'ILLEGAL_DUMPING', max_seconds=3)['source'] == 'trained:cctv-scene.pt'
+    assert engine.scene_check(clips['empty'], 'SMOKING', max_seconds=3)['source'].startswith('yolo-world:')
 
 
 def test_without_the_fine_tuned_file_fire_falls_back_to_yolo_world(clips):

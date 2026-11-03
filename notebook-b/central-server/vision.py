@@ -51,11 +51,12 @@ SCENE_VOCAB = {
     'FIRE_SMOKE': {'fire': '불꽃', 'smoke': '연기'},
     'SAFETY_THREAT': {'people fighting': '다투는 사람들', 'knife': '칼'},
 }
-# Classes of the model fine-tuned on public data (D-Fire, pothole, crack-seg; see shared/API.md v0.13).
-# Where it covers a situation it is used instead of YOLO-World; without the file YOLO-World stays.
+# Classes of the model fine-tuned on public data (D-Fire, pothole, crack-seg, TACO; see shared/API.md v0.13–0.14).
+# Where the installed model has a situation's classes it is used instead of YOLO-World; otherwise YOLO-World stays.
 TRAINED_VOCAB = {
     'FIRE_SMOKE': {'smoke': '연기', 'fire': '불꽃'},
     'POTHOLE': {'pothole': '포트홀', 'road_crack': '도로 균열'},
+    'ILLEGAL_DUMPING': {'litter': '버려진 쓰레기', 'plastic_bag': '비닐봉지·포장재'},
 }
 TRAINED_MIN_CONFIDENCE = 0.35
 SCENE_TYPES = set(SCENE_VOCAB)
@@ -141,21 +142,26 @@ class VisionEngine:
         words = SCENE_VOCAB.get(incident_type)
         if not words:
             return {**empty, 'source': 'none', 'warnings': []}
-        trained = incident_type in TRAINED_VOCAB and self.trained_path.is_file()
-        if trained:
-            words, model_path, attribute, minimum = TRAINED_VOCAB[incident_type], self.trained_path, 'trained', TRAINED_MIN_CONFIDENCE
-        else:
-            model_path, attribute, minimum = self.scene_path, 'scene', SCENE_MIN_CONFIDENCE
-        if not model_path.is_file():
-            return {**empty, 'source': 'unavailable',
-                    'warnings': [f'장면 확인 모델 {model_path.name}이 없어 YOLO 결과만 썼습니다(setup_models.py 실행).']}
         frames = keyframes(path, count, max_seconds)
         with self.lock:
             self.load()
-            if getattr(self, attribute) is None:
-                from ultralytics import YOLO
-                setattr(self, attribute, YOLO(str(model_path)))
-            model = getattr(self, attribute)
+            from ultralytics import YOLO
+            trained = False
+            if incident_type in TRAINED_VOCAB and self.trained_path.is_file():
+                if self.trained is None:
+                    self.trained = YOLO(str(self.trained_path))
+                # An older fine-tuned file may lack this situation's classes; then YOLO-World answers.
+                trained = any(name in TRAINED_VOCAB[incident_type] for name in self.trained.names.values())
+            if trained:
+                words, model_path, model, minimum = TRAINED_VOCAB[incident_type], self.trained_path, self.trained, TRAINED_MIN_CONFIDENCE
+            else:
+                model_path, minimum = self.scene_path, SCENE_MIN_CONFIDENCE
+                if not model_path.is_file():
+                    return {**empty, 'source': 'unavailable',
+                            'warnings': [f'장면 확인 모델 {model_path.name}이 없어 YOLO 결과만 썼습니다(setup_models.py 실행).']}
+                if self.scene is None:
+                    self.scene = YOLO(str(model_path))
+                model = self.scene
             names = model.names
             wanted = [index for index, name in names.items() if name in words]
             best = None

@@ -397,3 +397,12 @@ JSON의 비밀 값은 진단 출력·DB·로그·Git에 넣지 않는다.
 - `FIRE_SMOKE`(연기·불꽃)와 `POTHOLE`(포트홀·도로 균열)은 이 모델로 장면 확인한다(신뢰도 0.35 이상이면 `visible`,
   `scene_check.source = trained:cctv-scene.pt`). 나머지 유형은 YOLO-World(v0.12), 파일이 없으면 YOLO-World로 돌아간다.
 - 사진 저작권 때문에 학습 데이터와 모델은 시연·연구용으로만 쓰고 배포하지 않는다.
+
+## B 장면 모델 2차 학습: 쓰레기 추가 (v0.14)
+
+- `runtime/models/cctv-scene.pt`를 7종(smoke, fire, pothole, road_crack, litter, plastic_bag, cigarette)으로 다시 학습했다.
+  추가 데이터: TACO v1.0(Zenodo 3587843, CC BY 4.0, MD5 공개값 일치) 1,500장. TACO 60종을 비닐봉지·포장재 / 담배꽁초 / 기타 쓰레기로 묶었다.
+- 검증 mAP50: 연기 0.786, 불꽃 0.714, 포트홀 0.671, 균열 0.801, 쓰레기 0.430, 비닐·포장재 0.365, 담배꽁초 0.062(사용 안 함).
+- `ILLEGAL_DUMPING`(쓰레기 무단투기 의심)은 이제 이 모델의 litter·plastic_bag으로 장면 확인한다(신뢰도 0.35 이상). TACO 검증의 쓰레기 사진 149장 중
+  90%에서 찾았고 쓰레기 없는 화재·도로 사진 300장에서 오탐 0건(같은 조건 YOLO-World는 4%). 흡연 의심 등은 YOLO-World 유지.
+- 설치된 모델에 해당 유형의 클래스가 없으면(예: 1차 모델) 자동으로 YOLO-World를 쓴다.
